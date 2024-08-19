@@ -23,7 +23,9 @@ const args = parseArgs({
 });
 
 if (args.values.input.length < 1) {
-  console.error("input is required using -i (can provide multiple files)");
+  console.error(
+    "input is required using -i (can provide multiple files in order to combine audio and video)"
+  );
   process.exit(1);
 }
 
