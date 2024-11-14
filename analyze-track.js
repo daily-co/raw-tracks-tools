@@ -1,26 +1,34 @@
-import * as Path from "node:path";
-import { parseArgs } from "node:util";
+import * as Path from 'node:path';
+import { parseArgs } from 'node:util';
 
 //import equal from "fast-deep-equal";
 
-import { analyzeTrack } from "./src/analyze-track.js";
+import { analyzeTrack } from './src/analyze-track.js';
 
 const args = parseArgs({
   options: {
     input: {
-      type: "string",
-      short: "i",
+      type: 'string',
+      short: 'i',
+    },
+    startTime: {
+      type: 'string',
+      short: 's',
     },
   },
 });
 
 const inputPath = args.values.input;
 if (!inputPath || inputPath.length < 1) {
-  console.error("input is required (-i or --input)");
+  console.error('input is required (-i or --input)');
   process.exit(1);
 }
 
-let analysis = await analyzeTrack("analyze-run", inputPath);
+const opts = {
+  minGapDurationInSecs: 0.5,
+};
+
+let analysis = await analyzeTrack('analyze-run', inputPath, opts);
 
 /*
 // DEBUG: used this to verify that multiple calls to ffprobe will return the same result.
@@ -51,3 +59,18 @@ if (1) {
 */
 
 console.log(analysis);
+
+if (args.values.startTime) {
+  const startTs = parseFloat(args.values.startTime);
+  if (!Number.isFinite(startTs)) {
+    throw new Error('invalid startTs: ', args.values.startTime);
+  }
+  const gapTimes = analysis.gaps.map((gap) => {
+    const { start, end } = gap;
+    const dur = end - start;
+    const gapStartTs = startTs + start * 1000;
+    const date = new Date(gapStartTs);
+    return `  ${date.toISOString()} - gap duration ${dur.toFixed(3)} s`;
+  });
+  console.log('Timestamps for gaps:\n\n', gapTimes.join('\n'));
+}
