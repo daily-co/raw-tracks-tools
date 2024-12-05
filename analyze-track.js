@@ -1,4 +1,5 @@
 import * as Path from 'node:path';
+import * as fs from 'node:fs';
 import { parseArgs } from 'node:util';
 
 //import equal from "fast-deep-equal";
@@ -21,6 +22,10 @@ const args = parseArgs({
 const inputPath = args.values.input;
 if (!inputPath || inputPath.length < 1) {
   console.error('input is required (-i or --input)');
+  process.exit(1);
+}
+if (!fs.existsSync(inputPath)) {
+  console.error("input path doesn't exist: ", inputPath);
   process.exit(1);
 }
 

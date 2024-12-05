@@ -5,5 +5,8 @@
   "type": "module",
   "engines": {
     "node": ">=18.19.0"
+  },
+  "dependencies": {
+    "zx": "^8.2.2"
   }
 }
