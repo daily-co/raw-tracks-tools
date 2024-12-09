@@ -92,6 +92,19 @@ if (!Array.isArray(rawTracksManifest.participants)) {
 }
 
 const outputSize = { w: 1280, h: 720 };
+if (argv['w'] && argv['h']) {
+  outputSize.w = parseInt(argv['w'], 10);
+  outputSize.h = parseInt(argv['h'], 10);
+  if (
+    !Number.isFinite(outputSize.w) ||
+    !Number.isFinite(outputSize.h) ||
+    outputSize.w < 1 ||
+    outputSize.h < 1
+  ) {
+    echo`Invalid output size specified: ${outputSize.w} x ${outputSize.h}`;
+    process.exit(1);
+  }
+}
 
 const rawTracksRoot = path.dirname(path.resolve(rawTracksManifestPath));
 
@@ -130,10 +143,29 @@ if (totalDuration_secs <= 0) {
   process.exit(3);
 }
 
-const fps = 30;
+const fps = argv['fps'] ? parseFloat(argv['fps']) : 30;
+if (!Number.isFinite(fps) || fps < 0.1) {
+  echo`Invalid fps: ${fps}`;
+  process.exit(2);
+}
+
 const totalDuration_frames = Math.floor(fps * totalDuration_secs);
 
-echo`Total duration: ${totalDuration_secs} s = ${totalDuration_frames} frames`;
+echo`Total duration: ${totalDuration_secs} s = ${totalDuration_frames} frames at ${fps} fps`;
+
+// composition params passed to VCS
+let initialParams = {
+  mode: 'grid',
+};
+const paramsJsonFile = argv['params'] ?? argv['p'];
+if (paramsJsonFile) {
+  try {
+    initialParams = fs.readJSONSync(paramsJsonFile);
+  } catch (e) {
+    echo`Error parsing params JSON file: ${e}`;
+    process.exit(2);
+  }
+}
 
 // sort inputs by the timestamp, so the events are easier to read
 // as video inputs are activated in order over time.
@@ -149,19 +181,16 @@ for (const [idx, track] of vcsVideoInputTrackDescs.entries()) {
   track.videoInputId = VIDEO_INPUT_ID_NUM_PREFIX + idx;
 }
 
-echo`VCS video inputs: ${util.inspect(vcsVideoInputTrackDescs)}`;
+//echo`VCS video inputs: ${util.inspect(vcsVideoInputTrackDescs)}`;
 
 const vcsBatch = writeVcsBatchForTracks(vcsVideoInputTrackDescs, {
   outputSize,
   durationInFrames: totalDuration_frames,
   fps,
-  initialParams: {
-    mode: 'grid',
-    'videoSettings.showParticipantLabels': true,
-  },
+  initialParams,
 });
 
-echo`VCS batch: ${util.inspect(vcsBatch, { depth: 100 })}`;
+//echo`VCS batch: ${util.inspect(vcsBatch, { depth: 100 })}`;
 
 const tmpPath = tmpdir(
   `raw-tracks-composite_${rawTracksManifest.recordingStartTs}`
@@ -174,60 +203,57 @@ const batchRunnerOutputDir = path.resolve(tmpPath, 'vcs-output');
 
 let g_activeVideoInputSlots = [];
 
-if (0) {
-  echo`\n--- Executing VCS state batch runner ---`;
+echo`\n--- Executing VCS state batch runner ---`;
 
-  await within(async () => {
-    cd(path.resolve(vcsSdkDir, 'js'));
+await within(async () => {
+  cd(path.resolve(vcsSdkDir, 'js'));
 
-    await $({
-      verbose: true,
-    })`${g_tools.node} vcs-batch-runner.js --events_json ${vcsEventsJsonPath} --output_prefix ${batchRunnerOutputDir}/seq --clean_output_dir`;
-  });
-  echo`---- Batch runner finished.\n`;
+  await $({
+    verbose: true,
+  })`${g_tools.node} vcs-batch-runner.js --events_json ${vcsEventsJsonPath} --output_prefix ${batchRunnerOutputDir}/seq --clean_output_dir`;
+});
+echo`---- Batch runner finished.\n`;
 
-  const framesPerSegment = Math.round(fps * 20);
-  const numSegments = Math.ceil(totalDuration_frames / framesPerSegment);
+const framesPerSegment = Math.round(fps * 20);
+const numSegments = Math.ceil(totalDuration_frames / framesPerSegment);
 
-  echo`\n--- Rendering ${numSegments} segment${numSegments > 1 ? 's' : ''} ---`;
+echo`\n--- Rendering ${numSegments} segment${numSegments > 1 ? 's' : ''} ---`;
 
-  let ffmpegConcatFile = '';
+let ffmpegConcatFile = '';
 
-  for (let segIdx = 0; segIdx < numSegments; segIdx++) {
-    const startFrame = segIdx * framesPerSegment;
-    const numFrames =
-      segIdx < numSegments - 1
-        ? framesPerSegment
-        : totalDuration_frames % numSegments;
+for (let segIdx = 0; segIdx < numSegments; segIdx++) {
+  const startFrame = segIdx * framesPerSegment;
+  const numFrames =
+    segIdx < numSegments - 1
+      ? framesPerSegment
+      : totalDuration_frames % numSegments;
 
-    const segTmpDir = path.resolve(tmpPath, `seg${segIdx}`);
-    fs.emptyDirSync(segTmpDir);
+  const segTmpDir = path.resolve(tmpPath, `seg${segIdx}`);
+  fs.emptyDirSync(segTmpDir);
 
-    let segOutputM4v;
-    try {
-      segOutputM4v = await renderSegment(
-        segIdx,
-        startFrame,
-        numFrames,
-        segTmpDir
-      );
-    } catch (e) {
-      console.error(
-        `** renderSegment ${segIdx + 1} / ${numSegments} failed: ${e.message}`
-      );
-      process.exit(9);
-    }
-    if (segOutputM4v.length > 0) {
-      ffmpegConcatFile += `file '${path.relative(tmpPath, segOutputM4v)}'\n`;
-    }
+  let segOutputM4v;
+  try {
+    segOutputM4v = await renderSegment(
+      segIdx,
+      startFrame,
+      numFrames,
+      segTmpDir
+    );
+  } catch (e) {
+    console.error(
+      `** renderSegment ${segIdx + 1} / ${numSegments} failed: ${e.message}`
+    );
+    process.exit(9);
   }
-
-  echo`\n---- Concatenating segments ----`;
-
-  const concatTempPath = path.resolve(tmpPath, 'video-concat.txt');
-  fs.writeFileSync(concatTempPath, ffmpegConcatFile, { encoding: 'utf-8' });
+  if (segOutputM4v.length > 0) {
+    ffmpegConcatFile += `file '${path.relative(tmpPath, segOutputM4v)}'\n`;
+  }
 }
+
+echo`\n---- Concatenating segments ----`;
+
 const concatTempPath = path.resolve(tmpPath, 'video-concat.txt');
+fs.writeFileSync(concatTempPath, ffmpegConcatFile, { encoding: 'utf-8' });
 
 const concatOutputM4v = path.resolve(tmpPath, 'video-concat.m4v');
 
@@ -250,15 +276,23 @@ if (normalizedAudioFiles.length > 0) {
 
   await $`ffmpeg -hide_banner -y -i ${concatOutputM4v} -i ${mixedOutputAac} -c copy -map 0:0 -map 1:0 ${muxedOutputMp4}`;
 }
-const finalOutput = muxedOutputMp4 ?? concatOutputM4v;
+const finalOutputTmp = muxedOutputMp4 ?? concatOutputM4v;
 
-const finalOutputDst = argv['output-video'] ?? argv['o'];
-if (finalOutputDst) {
-  fs.moveSync(finalOutput, finalOutputDst, { overwrite: true });
+let finalOutputDst = argv['output-video'] ?? argv['o'];
+if (!finalOutputDst) {
+  finalOutputDst = path.resolve(
+    rawTracksRoot,
+    `composite-${rawTracksManifest.recordingStartTs}${path.extname(
+      finalOutputTmp
+    )}`
+  );
 }
+fs.moveSync(finalOutputTmp, finalOutputDst, { overwrite: true });
+
+fs.emptyDirSync(tmpPath);
 
 echo`\n------\nComposite-tracks tool has finished.`;
-echo`Output at:\n${finalOutputDst ?? finalOutput}`;
+echo`Output at:\n${finalOutputDst}`;
 process.exit(0);
 
 // ----------------------------------------------------

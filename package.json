@@ -8,5 +8,11 @@
   },
   "dependencies": {
     "zx": "^8.2.2"
+  },
+  "scripts": {
+    "analyze-track": "node analyze-track.js",
+    "normalize-track": "node normalize-track.js",
+    "gen-manifest": "npx zx gen-manifest.zx.mjs",
+    "composite-tracks": "npx zx composite-tracks.zx.mjs"
   }
 }
