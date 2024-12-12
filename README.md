@@ -44,7 +44,7 @@ optionally with layout options and graphics overlays of your choice.
 The following arguments are required:
 
 ```
-npm run composite-tracks \
+npm run composite-tracks -- \
         --vcs-sdk-path $PATH_TO_VCS_SDK \
         -i $INPUT_PATH_TO_RAW_TRACKS_MANIFEST_FILE
 ```
@@ -108,7 +108,7 @@ You can specify a custom `composition_params` object by providing it as a JSON f
 Generates a raw-tracks manifest file by inspecting filenames in a directory containing raw-tracks recordings made on Daily.
 
 ```
-npm run gen-manifest -i $PATH_TO_RAW_TRACKS_DIR
+npm run gen-manifest -- -i $PATH_TO_RAW_TRACKS_DIR
 ```
 
 ## normalize-track
@@ -125,7 +125,7 @@ If you pass both a video and an audio file, a combined MPEG-4 file is written.
 Example usage:
 
 ```
-npm run normalize-track -i example-cam-video.webm -i example-cam-audio.webm
+npm run normalize-track -- -i example-cam-video.webm -i example-cam-audio.webm
 ```
 
 You can also provide an output path using the -o option.
@@ -135,5 +135,5 @@ You can also provide an output path using the -o option.
 Prints a JSON describing a track from a raw-tracks recording.
 
 ```
-npm run analyze-track -i example-cam-video.webm
+npm run analyze-track -- -i example-cam-video.webm
 ```
