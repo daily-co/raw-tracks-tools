@@ -2,7 +2,9 @@
 
 A suite of CLI scripts for processing video/audio recordings made in "raw-tracks" mode on [Daily](https://daily.co).
 
-This recording type saves video and audio streams from a WebRTC session in individual files. The streams are recorded without any transcoding or processing, and they may start at different times. Editing and compositing the tracks therefore requires normalizing the raw data and aligning tracks for audio/video synchronization. You can find more information in [Daily's documentation](https://docs.daily.co/guides/products/live-streaming-recording/recording-calls-with-the-daily-api#raw-tracks).
+This recording type saves video and audio streams from a WebRTC session in individual files. The streams are recorded without any transcoding or processing, and they may start at different times. Samples received over the WebRTC connection may vary greatly: they may come in with delays, they may include varying resolutions within a single track (if a participant is sending multiple quality layers), and some packets may have been lost so there can be gaps. This kind of raw media data is incompatible with most video editing programs that expect a media track to have a stable sampling rate and a fixed resolution. Editing and compositing these raw-tracks files therefore requires normalizing the raw data into an editing-compatible format, and audio/video synchronization also requires aligning their start times. The normalize tool included here will do both operations.
+
+You can find more information about creating these recordings in [Daily's documentation for raw-tracks](https://docs.daily.co/guides/products/live-streaming-recording/recording-calls-with-the-daily-api#raw-tracks).
 
 This repo includes tools for:
 
@@ -139,7 +141,7 @@ The default output frame rate is 30. You can override with `--fps`.
 
 The VCS render engine supports a wealth of composition options. They are the same as available for cloud recordings on Daily.
 
-You can find them listed on Daily's documentation site: [composition_params](https://docs.daily.co/reference/rest-api/rooms/recordings/start#composition-params);
+You can find them listed on Daily's documentation site for recording/streaming: [composition_params](https://docs.daily.co/reference/rest-api/rooms/recordings/start#composition-params)
 
 The default layout mode is `grid`. You can find the other default param values behind the above link.
 
