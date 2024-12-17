@@ -2,11 +2,14 @@
 
 A suite of CLI scripts for processing video/audio recordings made in "raw-tracks" mode on [Daily](https://daily.co).
 
-Includes tools for analyzing and converting individual participant tracks, as well as compositing
-all the participant tracks from a recording into a single MP4 file.
+Includes tools for:
 
-Compositing uses Daily's open source [VCS](https://github.com/daily-co/daily-vcs) engine.
-To control the video layout and overlay graphics, you can pass in composition params that work
+- Analyzing and converting individual participant tracks;
+- Aligning audio and video tracks so they are in sync;
+- Compositing all the participant tracks from a recording into a single MP4 file.
+
+Compositing is done with Daily's open source [VCS](https://github.com/daily-co/daily-vcs) engine.
+To control the output video's layout and overlay graphics, you can pass in composition params that work
 the same way as with Daily's realtime cloud recording and streaming. See below for more details.
 
 ## Installation
@@ -20,11 +23,13 @@ Run once in the repo root:
 
 `npm install`
 
+### Installation: compositing only
+
 For compositing, you also need VCS:
 
 - Clone the VCS SDK repo: https://github.com/daily-co/daily-vcs
 
-In the VCS SDK repo, perform the following operations once:
+In the VCS SDK repo, perform the following install operations once:
 
 - Install the base SDK:
   `cd js; yarn install`
@@ -118,6 +123,7 @@ Takes one or two webm files from raw-tracks recordings and processes them into a
 - Pauses in the video track are rendered as black
 - Small drops in frame rate are padded with repeated frames (so that fps is even across the file)
 - Any low-resolution samples within the video track are upscaled to the maximum resolution detected
+- Video track's color space is converted to BT.709 standard if required
 - Audio and video tracks are padded so they start at the same time
 
 If you pass both a video and an audio file, a combined MPEG-4 file is written.
