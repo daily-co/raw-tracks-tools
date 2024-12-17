@@ -41,6 +41,42 @@ NOTE: VCSRender may have further platform-specific build instructions (it's a C+
 At minimum it requires the Meson build tool. There are also some additional small dependencies on macOS.
 Please check out `server-render/vcsrender/README.md` first before building.
 
+## analyze-track
+
+Prints a JSON describing a track from a raw-tracks recording, e.g. its data format and any gaps detected.
+
+```
+npm run analyze-track -- -i example-cam-video.webm
+```
+
+## normalize-track
+
+Takes one or two webm files from raw-tracks recordings and processes them into a normalized format:
+
+- Pauses in the video track are rendered as black
+- Small drops in frame rate are padded with repeated frames (so that fps is even across the file)
+- Any low-resolution samples within the video track are upscaled to the maximum resolution detected
+- Video track's color space is converted to BT.709 standard if required
+- Audio and video tracks are padded so they start at the same time
+
+If you pass both a video and an audio file, a combined MPEG-4 file is written.
+
+Example usage:
+
+```
+npm run normalize-track -- -i example-cam-video.webm -i example-cam-audio.webm
+```
+
+You can also provide an output path using the -o option.
+
+## gen-manifest
+
+Generates a raw-tracks manifest file by inspecting filenames in a directory containing raw-tracks recordings made on Daily.
+
+```
+npm run gen-manifest -- -i $PATH_TO_RAW_TRACKS_DIR
+```
+
 ## composite-tracks
 
 The tool combines audio and video tracks from a meeting and generates a single MP4 file,
@@ -54,9 +90,9 @@ npm run composite-tracks -- \
         -i $INPUT_PATH_TO_RAW_TRACKS_MANIFEST_FILE
 ```
 
-You must pass in a raw-tracks manifest.
-This is a JSON file that describes which tracks belong to the same recording timeline.
-If you have raw-tracks files without a manifest, no problem! You can easily generate a manifest using the gen-manifest script, see below.
+You must pass in a raw-tracks manifest. This is a JSON file that describes which tracks belong to the same recording timeline.
+
+If you have raw-tracks files without a manifest, no problem! You can easily generate a manifest using the `gen-manifest` described in the previous section.
 
 In the above CLI example, `$PATH_TO_VCS_SDK` should point to the VCS SDK repo root (see install instructions above).
 
@@ -106,40 +142,4 @@ You can specify a custom `composition_params` object by providing it as a JSON f
 
 ```
     --params my_composition_params.json
-```
-
-## gen-manifest
-
-Generates a raw-tracks manifest file by inspecting filenames in a directory containing raw-tracks recordings made on Daily.
-
-```
-npm run gen-manifest -- -i $PATH_TO_RAW_TRACKS_DIR
-```
-
-## normalize-track
-
-Takes one or two webm files from raw-tracks recordings and processes them into a normalized format:
-
-- Pauses in the video track are rendered as black
-- Small drops in frame rate are padded with repeated frames (so that fps is even across the file)
-- Any low-resolution samples within the video track are upscaled to the maximum resolution detected
-- Video track's color space is converted to BT.709 standard if required
-- Audio and video tracks are padded so they start at the same time
-
-If you pass both a video and an audio file, a combined MPEG-4 file is written.
-
-Example usage:
-
-```
-npm run normalize-track -- -i example-cam-video.webm -i example-cam-audio.webm
-```
-
-You can also provide an output path using the -o option.
-
-## analyze-track
-
-Prints a JSON describing a track from a raw-tracks recording.
-
-```
-npm run analyze-track -- -i example-cam-video.webm
 ```
