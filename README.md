@@ -2,7 +2,9 @@
 
 A suite of CLI scripts for processing video/audio recordings made in "raw-tracks" mode on [Daily](https://daily.co).
 
-Includes tools for:
+This recording type saves video and audio streams from a WebRTC session in individual files. The streams are recorded without any transcoding or processing, and they may start at different times. Editing and compositing the tracks therefore requires normalizing the raw data and aligning tracks for audio/video synchronization. You can find more information in [Daily's documentation](https://docs.daily.co/guides/products/live-streaming-recording/recording-calls-with-the-daily-api#raw-tracks).
+
+This repo includes tools for:
 
 - Analyzing and converting individual participant tracks;
 - Aligning audio and video tracks so they are in sync;
