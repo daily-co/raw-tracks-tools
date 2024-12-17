@@ -37,9 +37,12 @@ In the VCS SDK repo, perform the following install operations once:
 - Build the VCSRender tool:
   `cd server-render/vcsrender; meson setup build; ninja -C build`
 
-NOTE: VCSRender may have further platform-specific build instructions (it's a C++ program).
-At minimum it requires the Meson build tool. There are also some additional small dependencies on macOS.
-Please check out `server-render/vcsrender/README.md` first before building.
+Note that these tools have their individual dependencies:
+
+- The base SDK needs just the `yarn` JavaScript package manager.
+- VCSRender is a C++ program. At minimum it requires the Meson build tool.
+  There are also some additional small dependencies on macOS.
+  Before building VCSRender, please first check out `server-render/vcsrender/README.md` (in the VCS SDK repo).
 
 ## analyze-track
 
