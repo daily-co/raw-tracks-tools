@@ -1,7 +1,9 @@
 {
   "name": "@daily-co/raw-tracks-tools",
   "version": "0.1.0",
+  "license": "BSD-2-Clause",
   "author": "Daily (https://daily.co)",
+  "homepage": "https://github.com/daily-co/raw-tracks-tools/",
   "type": "module",
   "engines": {
     "node": ">=18.19.0"
