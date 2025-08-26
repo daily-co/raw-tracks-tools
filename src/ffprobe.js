@@ -24,19 +24,38 @@ export async function runFfprobeCommandAsync(contextId, args) {
   } catch (e) {}
 
   const child = childProcess.spawn("ffprobe", args, {});
+  const stderrStream = fs.createWriteStream(stderrOutPath);
+  child.stderr.pipe(stderrStream);
 
   const ret = {
     streams: [],
     frames: [],
   };
 
+  let stdoutBuf = "";
   child.stdout.on("data", (data) => {
-    let str = data.toString();
+    stdoutBuf += data.toString();
+  });
+
+  child.on("error", (err) => {
+    throw new Error(`ffprobe child error: ${err.message}`);
+  });
+
+  const exitCode = await new Promise((resolve) => {
+    child.on("close", resolve);
+  });
+  if (exitCode) {
+    throw new Error(
+      `ffprobe subprocess exited with ${exitCode}, log at: ${stderrOutPath}`
+    );
+  }
+
+  // parse buffered stdout after process finishes to avoid partial chunks
+  {
+    let str = stdoutBuf;
     let idx;
 
-    let numItems = 0;
     while ((idx = str.indexOf("[")) !== -1) {
-      numItems++;
       str = str.substring(idx);
 
       if (str.indexOf("[FRAME]") === 0) {
@@ -68,19 +87,6 @@ export async function runFfprobeCommandAsync(contextId, args) {
         throw new Error("Unsupported data");
       }
     }
-  });
-
-  child.on("error", (err) => {
-    throw new Error(`ffprobe child error: ${err.message}`);
-  });
-
-  const exitCode = await new Promise((resolve) => {
-    child.on("close", resolve);
-  });
-  if (exitCode) {
-    throw new Error(
-      `ffprobe subprocess exited with ${exitCode}, log at: ${stderrOutPath}`
-    );
   }
 
   return ret;
