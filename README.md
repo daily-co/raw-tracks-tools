@@ -39,7 +39,13 @@ In the VCS SDK repo, perform the following install operations once:
   `cd js; yarn install`
 
 - Build the VCSRender tool:
-  `cd server-render/vcsrender; meson setup build; ninja -C build`
+  `cd server-render/vcsrender`
+
+  First, initialize submodules (run once from the VCS SDK repo root):
+  `git submodule init && git submodule update`
+
+  Then build:
+  `meson setup build; ninja -C build`
 
 Note that these tools have their individual dependencies:
 
