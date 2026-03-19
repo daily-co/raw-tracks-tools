@@ -2,6 +2,30 @@
 import 'zx/globals';
 
 const rawTracksDir = argv['input-raw-tracks-dir'] ?? argv['i'];
+if (!rawTracksDir) {
+  echo`Must provide --input-raw-tracks-dir (or -i)`;
+  process.exit(1);
+}
+if (!fs.existsSync(rawTracksDir)) {
+  echo`Directory not found: ${rawTracksDir}`;
+  process.exit(1);
+}
+
+// Check if an event JSON already exists — if so, suggest composite-from-events
+const eventJsonFiles = fs.readdirSync(rawTracksDir).filter(
+  (f) => f.endsWith('.event.json')
+);
+if (eventJsonFiles.length > 0) {
+  echo`\nNote: This directory contains an event JSON file:`;
+  echo`  ${eventJsonFiles[0]}`;
+  echo``;
+  echo`The event JSON provides richer metadata (display names, pause/resume,`;
+  echo`chat messages) than a filename-derived manifest. Consider using the`;
+  echo`composite-from-events tool instead:`;
+  echo``;
+  echo`  npm run composite-from-events -- -i ${path.resolve(rawTracksDir, eventJsonFiles[0])} --vcs-sdk-path \$PATH_TO_VCS_SDK`;
+  echo``;
+}
 
 const manifest = {
   recordingStartTs: -1,
