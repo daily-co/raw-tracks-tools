@@ -15,6 +15,7 @@
     "analyze-track": "node analyze-track.js",
     "normalize-track": "node normalize-track.js",
     "gen-manifest": "npx zx gen-manifest.zx.mjs",
-    "composite-tracks": "npx zx composite-tracks.zx.mjs"
+    "composite-tracks": "npx zx composite-tracks.zx.mjs",
+    "composite-from-events": "npx zx composite-from-events.zx.mjs"
   }
 }

@@ -5,7 +5,7 @@ import * as childProcess from "node:child_process";
 // this could be configurable
 const g_stderrTempFilePrefix = "rawtracks_ffprobe_";
 
-export async function runFfprobeCommandAsync(contextId, args) {
+export async function runFfprobeCommandAsync(contextId, args, opts = {}) {
   if (!Array.isArray(args)) {
     throw new Error("Invalid args for ffprobe");
   }
@@ -13,7 +13,7 @@ export async function runFfprobeCommandAsync(contextId, args) {
     args = ["-hide_banner"].concat(args);
   }
 
-  console.log("cmd:  ffprobe", args.join(" "));
+  if (!opts.quiet) console.log("cmd:  ffprobe", args.join(" "));
 
   const stderrOutPath = Path.resolve(
     "/tmp",

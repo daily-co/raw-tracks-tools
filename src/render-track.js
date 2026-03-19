@@ -6,25 +6,35 @@ import { runFfmpegCommandAsync } from './ffexec.js';
 
 const g_tempFilePrefix = 'rawtracks_';
 let g_audioEncoderArgs;
+let g_videoEncoderArgs;
 
-function getAudioEncoderArgs() {
-  if (g_audioEncoderArgs) return g_audioEncoderArgs;
-
-  let hasLibfdk = false;
+function queryFfmpegEncoders() {
   try {
     const probe = childProcess.spawnSync(
       'ffmpeg',
       ['-hide_banner', '-encoders'],
       { encoding: 'utf-8' }
     );
-    if (probe.status === 0 && probe.stdout.includes('libfdk_aac')) {
-      hasLibfdk = true;
-    }
+    if (probe.status === 0) return probe.stdout;
   } catch (err) {
     console.warn('Unable to query ffmpeg encoders: %s', err?.message || err);
   }
+  return '';
+}
 
-  if (hasLibfdk) {
+let g_encoderList;
+function getEncoderList() {
+  if (g_encoderList === undefined) {
+    g_encoderList = queryFfmpegEncoders();
+  }
+  return g_encoderList;
+}
+
+function getAudioEncoderArgs() {
+  if (g_audioEncoderArgs) return g_audioEncoderArgs;
+
+  const encoders = getEncoderList();
+  if (encoders.includes('libfdk_aac')) {
     g_audioEncoderArgs = [
       '-c:a',
       'libfdk_aac',
@@ -47,12 +57,35 @@ function getAudioEncoderArgs() {
   return g_audioEncoderArgs;
 }
 
+function getVideoEncoderArgs(bitRate) {
+  if (g_videoEncoderArgs) return g_videoEncoderArgs;
+
+  const encoders = getEncoderList();
+  if (encoders.includes('h264_videotoolbox')) {
+    console.log('Using h264_videotoolbox hardware encoder');
+    g_videoEncoderArgs = ['-b:v', bitRate, '-c:v', 'h264_videotoolbox'];
+  } else {
+    console.log('h264_videotoolbox not available; using libx264 ultrafast');
+    g_videoEncoderArgs = [
+      '-b:v',
+      bitRate,
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+    ];
+  }
+
+  return g_videoEncoderArgs;
+}
+
 export async function normalizeAudioTrack(
   ctxName,
   analysis,
   inputPath,
   outputPath,
-  codec = 'aac'
+  codec = 'aac',
+  opts = {}
 ) {
   if (analysis?.isVideo)
     throw new Error('normalizeAudioTrack expects audio input');
@@ -61,7 +94,7 @@ export async function normalizeAudioTrack(
     throw new Error('normalizeAudioTrack expects startTime key');
 
   if (codec === 'wav') {
-    await normalizeAudioTrackToWav(ctxName, analysis, inputPath, outputPath);
+    await normalizeAudioTrackToWav(ctxName, analysis, inputPath, outputPath, opts);
     return;
   }
 
@@ -69,14 +102,15 @@ export async function normalizeAudioTrack(
     throw new Error(`Unsupported audio codec "${codec}"`);
   }
 
-  await normalizeAudioTrackToAAC(ctxName, analysis, inputPath, outputPath);
+  await normalizeAudioTrackToAAC(ctxName, analysis, inputPath, outputPath, opts);
 }
 
 async function normalizeAudioTrackToAAC(
   ctxName,
   analysis,
   inputPath,
-  outputPath
+  outputPath,
+  opts = {}
 ) {
   // the audio version of this operation just pads the start with silence.
   // we don't need to do gap rendering like with video.
@@ -90,16 +124,25 @@ async function normalizeAudioTrackToAAC(
       analysis.startTime * 1000
     )}:all=true`,
     ...getAudioEncoderArgs(),
-    outputPath,
   ];
-  await runFfmpegCommandAsync(`audio_${ctxName}`, args);
+
+  // Limit output duration if endTime is provided.
+  // Without this, Opus in WebM can produce wildly wrong output durations
+  // because the container has no reliable duration and aresample may over-extend.
+  if (analysis.endTime > 0) {
+    args.push('-t', analysis.endTime);
+  }
+
+  args.push(outputPath);
+  await runFfmpegCommandAsync(`audio_${ctxName}`, args, opts);
 }
 
 async function normalizeAudioTrackToWav(
   ctxName,
   analysis,
   inputPath,
-  outputPath
+  outputPath,
+  opts = {}
 ) {
   const args = [
     '-i',
@@ -114,16 +157,20 @@ async function normalizeAudioTrackToWav(
     '1',
     '-c:a',
     'pcm_s16le',
-    outputPath,
   ];
-  await runFfmpegCommandAsync(`audio_${ctxName}_wav`, args);
+  if (analysis.endTime > 0) {
+    args.push('-t', analysis.endTime);
+  }
+  args.push(outputPath);
+  await runFfmpegCommandAsync(`audio_${ctxName}_wav`, args, opts);
 }
 
 export async function normalizeVideoTrackToM4V(
   ctxName,
   analysis,
   inputPath,
-  outputPath
+  outputPath,
+  opts = {}
 ) {
   if (!analysis?.isVideo)
     throw new Error('normalizeVideoTrack expects video input');
@@ -156,12 +203,13 @@ export async function normalizeVideoTrackToM4V(
     segments.push({ start: t, end: endTime, type: 'src' });
   }
 
-  console.log('video segments to be written: ', segments);
+  if (!opts.quiet) console.log('video segments to be written: ', segments);
 
   // TODO: allow caller to set this
   const bitRate = '5000k';
 
-  const baseArgs = ['-r', frameRate, '-b:v', bitRate, '-c:v', 'libx264'];
+  const encoderArgs = getVideoEncoderArgs(bitRate);
+  const baseArgs = ['-r', frameRate, ...encoderArgs];
   let args;
 
   const tmpDir = '/tmp';
@@ -188,7 +236,7 @@ export async function normalizeVideoTrackToM4V(
     ...baseArgs,
     tmpSource,
   ];
-  await runFfmpegCommandAsync(`convert_${ctxName}`, args);
+  await runFfmpegCommandAsync(`convert_${ctxName}`, args, opts);
 
   let ffmpegConcatFile = '';
 
@@ -215,7 +263,7 @@ export async function normalizeVideoTrackToM4V(
         ...baseArgs,
         dst,
       ];
-      await runFfmpegCommandAsync(`rendergap_${i}_${ctxName}`, args);
+      await runFfmpegCommandAsync(`rendergap_${i}_${ctxName}`, args, opts);
     } else {
       const args = [
         '-ss',
@@ -228,7 +276,7 @@ export async function normalizeVideoTrackToM4V(
         'copy',
         dst,
       ];
-      await runFfmpegCommandAsync(`extractseg_${i}_${ctxName}`, args);
+      await runFfmpegCommandAsync(`extractseg_${i}_${ctxName}`, args, opts);
     }
   }
 
@@ -240,10 +288,8 @@ export async function normalizeVideoTrackToM4V(
 
   tmpFiles.push(concatTempPath);
 
-  //console.log('concat:\n', ffmpegConcatFile);
-
   args = ['-f', 'concat', '-i', concatTempPath, '-c', 'copy', outputPath];
-  await runFfmpegCommandAsync(`concat_${ctxName}`, args);
+  await runFfmpegCommandAsync(`concat_${ctxName}`, args, opts);
 
   for (const path of tmpFiles) {
     fs.rmSync(path);
