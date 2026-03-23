@@ -23,6 +23,9 @@ const args = parseArgs({
     'audio-codec': {
       type: 'string',
     },
+    'min-gap-duration': {
+      type: 'string',
+    },
   },
 });
 
@@ -44,6 +47,14 @@ if (!['aac', 'wav'].includes(audioCodec)) {
   process.exit(1);
 }
 
+const minGapDuration = args.values['min-gap-duration']
+  ? parseFloat(args.values['min-gap-duration'])
+  : undefined;
+if (minGapDuration !== undefined && (!Number.isFinite(minGapDuration) || minGapDuration < 0)) {
+  console.error('min-gap-duration must be a non-negative number (in seconds)');
+  process.exit(1);
+}
+
 let videoPath;
 let audioPath;
 let combinedOutputPath;
@@ -55,7 +66,11 @@ for (const inputPath of args.values.input) {
   }
   const basename = Path.basename(inputPath, Path.extname(inputPath));
 
-  const analysis = await analyzeTrack(`analyze_${basename}`, inputPath);
+  const analyzeOpts = {};
+  if (minGapDuration !== undefined) {
+    analyzeOpts.minGapDurationInSecs = minGapDuration;
+  }
+  const analysis = await analyzeTrack(`analyze_${basename}`, inputPath, analyzeOpts);
 
   if (analysis.isVideo) {
     const videoOutputPath = Path.resolve(
