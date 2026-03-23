@@ -204,6 +204,14 @@ You can also provide an output path using the -o option.
 
 By default, audio tracks are re-encoded to AAC. Pass `--audio-codec wav` to emit a mono 48 kHz PCM WAV instead. (MP4 muxing is only performed when an AAC track is produced, since MP4 does not accept PCM audio.)
 
+By default, gaps longer than 0.5 seconds in a video track are filled with black frames. For screenshare tracks (which produce frames only when content changes), this can cause unwanted black flashes. Use `--min-gap-duration` to increase the threshold:
+
+```
+npm run normalize-track -- -i screenshare-video.webm --min-gap-duration 30
+```
+
+This sets the minimum gap duration to 30 seconds, so only gaps longer than 30s will be filled with black frames. Shorter gaps will hold the last frame.
+
 ### gen-manifest
 
 Generates a raw-tracks manifest file by inspecting filenames in a directory containing raw-tracks recordings made on Daily. This is used with the legacy `composite-from-manifest` tool.
