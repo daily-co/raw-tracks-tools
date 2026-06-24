@@ -82,17 +82,19 @@ async function probeDurationSecs(filePath) {
   return parseFloat(res.stdout.trim());
 }
 
-// Group audio tracks per speaker, keyed by user_id when set. A reconnect (leave + rejoin)
-// reuses the same app-set user_id but gets a NEW participant_id, so grouping by user_id is
-// what merges those two files back into one speaker. Fall back to participant_id when no
-// user_id was set (e.g. a call with no meeting tokens).
+// Group audio tracks per speaker. A reconnect (leave + rejoin) reuses the same app-set
+// identity but gets a NEW participant_id, so grouping by that identity is what merges the
+// fragments back into one speaker. Prefer user_id, then user_name, then participant_id.
+// (user_name is not guaranteed unique, so two different people sharing a name would merge;
+// it is only a fallback for when user_id was not set on the token.)
+const speakerKey = (track) => track.userId || track.userName || track.participantId;
 const groups = new Map(); // key -> { name, tracks: [] }
 for (const track of timeline.tracks.values()) {
   if (track.kind !== 'audio' || !track.filename) continue;
-  const key = track.userId || track.participantId;
+  const key = speakerKey(track);
   if (!groups.has(key)) {
     groups.set(key, {
-      name: track.userId || track.displayName || track.participantId,
+      name: track.userId || track.userName || track.displayName || track.participantId,
       tracks: [],
     });
   }
