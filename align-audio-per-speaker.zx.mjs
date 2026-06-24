@@ -1,11 +1,7 @@
 #!/usr/bin/env zx
 import 'zx/globals';
-import { fileURLToPath } from 'node:url';
-
 import { parseEventJson } from './src/parse-events.js';
 import { runFfmpegCommandAsync } from './src/ffexec.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /*
   Per-speaker audio alignment.
@@ -52,8 +48,9 @@ if (!fs.existsSync(eventJsonPath)) {
 const eventJsonDir = path.dirname(path.resolve(eventJsonPath));
 const eventJson = fs.readJSONSync(eventJsonPath);
 
-const outDir = argv['out'] ?? argv['o']
-  ? path.resolve(argv['out'] ?? argv['o'])
+const outArg = argv['out'] ?? argv['o'];
+const outDir = outArg
+  ? path.resolve(outArg)
   : path.resolve(eventJsonDir, 'per-speaker-audio');
 
 // --- Step 1: Parse event JSON ---
@@ -147,10 +144,18 @@ fs.mkdirpSync(outDir);
 /** Make a participant name safe for a filename, and keep it unique across speakers. */
 const usedNames = new Set();
 function outNameFor(speaker) {
-  let base = speaker.name.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
-  if (!base) base = speaker.key;
+  const sanitize = (s) =>
+    String(s ?? '')
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '');
+
+  const keySafe = sanitize(speaker.key);
+  let base = sanitize(speaker.name);
+  if (!base) base = keySafe || 'speaker';
+
   let name = base;
-  if (usedNames.has(name)) name = `${base}_${speaker.key.slice(0, 8)}`;
+  if (usedNames.has(name)) name = `${base}_${(keySafe || 'speaker').slice(0, 8)}`;
   usedNames.add(name);
   return name;
 }
