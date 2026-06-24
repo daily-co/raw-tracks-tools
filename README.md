@@ -141,6 +141,22 @@ You can specify a custom `composition_params` object by providing it as a JSON f
     --params my_composition_params.json
 ```
 
+## Per-speaker audio
+
+### align-audio-per-speaker
+
+Compositing produces a single mixed MP4. Sometimes you instead want **clean, separate audio per person**: one equal-length, front-aligned WAV per participant, all lined up on the same session timeline. That is the right input for a multitrack editor, a transcription pipeline, or speaker diarization.
+
+This tool reads the event JSON, takes each track's start offset from it, and for each participant delays their audio file(s) to that offset and pads everything to a shared length. A reconnect (more than one audio file for a participant) is mixed back together. No VCS SDK is needed; this is audio only.
+
+```
+npm run align-audio-per-speaker -- --input /path/to/recording.event.json
+```
+
+Output goes to a `per-speaker-audio` folder next to the event JSON, or pass `--out` (`-o`) to choose a directory. Each file is 48 kHz mono `pcm_s16le`.
+
+Best input is gapless WAV. Record with `enable_raw_tracks_transcoded_audio: wav-48k-mono` so each file is lossless and already gap-filled; then the align step is a pure delay-and-pad with no quality loss. Default `.webm` raw-tracks files work too, but they have no duration header, so the shared length falls back to the event-derived track end (a little looser).
+
 ## Individual track tools
 
 ### analyze-track
