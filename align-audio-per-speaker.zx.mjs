@@ -115,11 +115,11 @@ for (const [key, group] of groups) {
     }
 
     const offsetSecs = Math.max(0, track.startOffsetSecs ?? 0);
-    files.push({ path: filePath, offsetSecs });
 
     // Track end on the session timeline. Prefer the file's real duration (exact for WAV);
     // fall back to event-derived end when the container has no duration header.
     const dur = await probeDurationSecs(filePath);
+    files.push({ path: filePath, offsetSecs, durSecs: Number.isFinite(dur) ? dur : null });
     const end = Number.isFinite(dur)
       ? offsetSecs + dur
       : (track.removedAtSecs ?? timeline.sessionDurationSecs);
@@ -164,7 +164,18 @@ for (const speaker of speakers) {
     inputArgs.push('-i', f.path);
     // aresample=async=1 must precede adelay (same quirk render-track.js documents): it
     // normalizes the stream's start timestamp so the offset and the final cut are exact.
-    chains.push(`[${i}]aresample=async=1,adelay=${Math.floor(f.offsetSecs * 1000)}:all=1[a${i}]`);
+    const parts = ['aresample=async=1'];
+    // A WebRTC track ends (and sometimes starts) abruptly, so the join with the surrounding
+    // silence is a hard step: an audible click and a full-scale spike in the waveform. A
+    // short fade in/out at each fragment's edges ramps it to zero instead. 10 ms is below
+    // what you can hear on speech.
+    const fade = f.durSecs ? Math.min(0.01, f.durSecs / 4) : 0.01;
+    parts.push(`afade=t=in:d=${fade}`);
+    if (f.durSecs && f.durSecs > 2 * fade) {
+      parts.push(`afade=t=out:st=${(f.durSecs - fade).toFixed(4)}:d=${fade}`);
+    }
+    parts.push(`adelay=${Math.floor(f.offsetSecs * 1000)}:all=1`);
+    chains.push(`[${i}]${parts.join(',')}[a${i}]`);
   });
   const labels = speaker.files.map((_, i) => `[a${i}]`).join('');
   const combine = speaker.files.length > 1
