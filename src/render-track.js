@@ -212,6 +212,12 @@ export async function normalizeVideoTrackToM4V(
 
   const encoderArgs = getVideoEncoderArgs(bitRate);
   const baseArgs = ['-r', frameRate, ...encoderArgs];
+  // A small GOP bounds how far a -ss stream-copy cut can land from the requested time
+  // (it snaps to a keyframe). Callers that cut mid-file (pauses, reconnect slices) pass
+  // this; the default leaves the encoder's own GOP so cached outputs stay unchanged.
+  if (opts.gopSizeFrames > 0) {
+    baseArgs.push('-g', String(Math.round(opts.gopSizeFrames)));
+  }
   let args;
 
   const tmpDir = '/tmp';

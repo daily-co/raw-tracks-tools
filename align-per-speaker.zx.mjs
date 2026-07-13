@@ -134,7 +134,7 @@ const speakerKey = (track) => track.userId || track.userName || track.participan
 // as identity (that is speakerKey's job), so displayName is fine as a fallback here.
 const speakerName = (track) => track.userName || track.displayName || speakerKey(track);
 
-const isScreenTrack = (track) => Boolean(track.trackType?.includes('screen'));
+const isScreenTrack = (track) => /screen/i.test(track.trackType ?? '');
 
 const groups = new Map(); // key -> { name, audio: [], cam: [], screen: [] }
 for (const track of timeline.tracks.values()) {
@@ -350,9 +350,22 @@ async function renderSpeakerVideo(speaker, fragments, suffix, tmpPath) {
       : path.resolve(tmpPath, `${ctxBase}_slice${k}.mp4`);
     if (segFile !== outFile) segFiles.push(segFile);
 
+    // gopSizeFrames = 1s GOP: bounds how far a mid-file stream-copy cut (after a pause)
+    // can snap to a keyframe, and keeps each slice's real duration close to its intended
+    // length so a reconnect's later fragments do not drift on the concat'd timeline.
     await normalizeVideoTrackToM4V(`${ctxBase}_${k}`, analysis, frag.filePath, segFile, {
       quiet: true,
+      gopSizeFrames: fps,
     });
+
+    if (slices.length > 1) {
+      const intendedSecs = sliceEnd - sliceStart;
+      const actualSecs = await probeDurationSecs(segFile);
+      durationCache.delete(segFile); // temp file; do not pollute the cache
+      if (Number.isFinite(actualSecs) && Math.abs(actualSecs - intendedSecs) > 1.5 / fps) {
+        echo`  ! ${speaker.name}: slice ${k} is ${actualSecs.toFixed(3)}s, expected ${intendedSecs.toFixed(3)}s; later fragments may shift by the difference`;
+      }
+    }
   }
 
   if (segFiles.length > 0) {

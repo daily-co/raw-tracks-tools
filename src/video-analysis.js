@@ -24,11 +24,16 @@ export function buildVideoAnalysis(
     gaps.push({ start: outputStartPts, end: probe.startTime });
   }
 
-  // Pause intervals, converted to PTS space
+  // Pause intervals, converted to PTS space. Clamped to the output window: when a
+  // fragment's file runs past the next fragment's start, a pause near the boundary
+  // could otherwise extend the output past outputEndPts.
   for (const interval of track.pauseIntervals) {
-    const pauseAt = interval.pauseAt + ptsOffset;
-    const resumeAt = (interval.resumeAt ?? trackEndSecs) + ptsOffset;
-    gaps.push({ start: pauseAt, end: resumeAt });
+    const pauseAt = Math.max(interval.pauseAt + ptsOffset, outputStartPts);
+    const resumeAt = Math.min(
+      (interval.resumeAt ?? trackEndSecs) + ptsOffset,
+      outputEndPts
+    );
+    if (resumeAt - pauseAt > 0.001) gaps.push({ start: pauseAt, end: resumeAt });
   }
 
   // Trailing gap: black from track end to output end (if track ends early)
