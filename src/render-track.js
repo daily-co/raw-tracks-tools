@@ -189,7 +189,9 @@ export async function normalizeVideoTrackToM4V(
   const { videoSize, frameRate = 30, endTime, gaps } = analysis;
 
   const segments = [];
-  let t = 0;
+  // Output normally begins at PTS 0; a caller aligning a mid-session fragment can set
+  // analysis.outputStartTime so the output covers exactly [outputStartTime, endTime].
+  let t = analysis.outputStartTime ?? 0;
   for (const gap of gaps) {
     if (gap.start > t) {
       segments.push({ start: t, end: gap.start, type: 'src' });

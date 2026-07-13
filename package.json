@@ -16,6 +16,6 @@
     "normalize-track": "node normalize-track.js",
     "gen-event-json": "npx zx gen-event-json.zx.mjs",
     "composite-from-events": "npx zx composite-from-events.zx.mjs",
-    "align-audio-per-speaker": "npx zx align-audio-per-speaker.zx.mjs"
+    "align-per-speaker": "npx zx align-per-speaker.zx.mjs"
   }
 }

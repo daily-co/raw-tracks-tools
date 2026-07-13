@@ -141,23 +141,28 @@ You can specify a custom `composition_params` object by providing it as a JSON f
     --params my_composition_params.json
 ```
 
-## Per-speaker audio
+## Per-speaker tracks
 
-### align-audio-per-speaker
+### align-per-speaker
 
-Compositing produces a single mixed MP4. Sometimes you instead want **clean, separate audio per person**: one equal-length, front-aligned WAV per participant, all lined up on the same session timeline. That is the right input for a multitrack editor, a transcription pipeline, or speaker diarization.
+Compositing produces a single mixed MP4. Sometimes you instead want **clean, separate tracks per person**: one equal-length, front-aligned WAV per participant, plus one silent MP4 per participant with video, all lined up on the same session timeline. Drop every file at time 0 in a multitrack editor, a transcription pipeline, or a diarization job, and everything lines up. No VCS SDK is needed.
 
-This tool reads the event JSON, takes each track's start offset from it, and for each participant delays their audio file(s) to that offset and pads everything to a shared length. A reconnect (more than one audio file for a participant) is mixed back together. No VCS SDK is needed; this is audio only.
+This tool reads the event JSON, takes each track's start offset from it, and for each participant:
+
+- **Audio**: delays their audio file(s) to that offset and pads to a shared length. A reconnect (more than one audio file for a participant) is mixed back together.
+- **Video**: renders one full-length H.264 MP4 per track type, black wherever the speaker has no video (before joining, during pauses, after leaving, and between reconnect fragments). A screen share overlaps the camera in time, so it gets its own file with a `_screen` suffix.
 
 ```
-npm run align-audio-per-speaker -- --input /path/to/recording.event.json
+npm run align-per-speaker -- --input /path/to/recording.event.json
 ```
 
-Output goes to a `per-speaker-audio` folder next to the event JSON, or pass `--out` (`-o`) to choose a directory. Each file is 48 kHz mono `pcm_s16le`.
+Output goes to a `per-speaker-tracks` folder next to the event JSON, or pass `--out` (`-o`) to choose a directory. Audio is 48 kHz mono `pcm_s16le`; video is silent H.264 at the speaker's max recorded resolution and 30 fps (`--fps` to override).
 
-Best input is gapless WAV. Record with `enable_raw_tracks_transcoded_audio: wav-48k-mono` so each file is lossless and already gap-filled; then the align step is a pure delay-and-pad with no quality loss. Default `.webm` raw-tracks files work too: they have no duration header, so the tool scans their packets to find the real duration.
+Video alignment re-encodes every video track, so it can take a while for long sessions. Pass `--no-video` for a fast audio-only run.
 
-The shared length is `MAX(start offset + duration)` across all tracks, video included, so the aligned WAVs match the full session length even when video ran past the last audio track.
+Best audio input is gapless WAV. Record with `enable_raw_tracks_transcoded_audio: wav-48k-mono` so each file is lossless and already gap-filled; then the align step is a pure delay-and-pad with no quality loss. Default `.webm` raw-tracks files work too: they have no duration header, so the tool scans their packets to find the real duration.
+
+The shared length is `MAX(start offset + duration)` across all tracks, audio and video, so every output matches the full session length.
 
 ## Individual track tools
 

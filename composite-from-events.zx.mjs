@@ -6,6 +6,7 @@ import * as util from 'node:util';
 import { parseEventJson } from './src/parse-events.js';
 import { probeTrack } from './src/probe-track.js';
 import { normalizeVideoTrackToM4V, normalizeAudioTrack } from './src/render-track.js';
+import { buildVideoAnalysis as buildAlignedVideoAnalysis } from './src/video-analysis.js';
 import { writeVcsBatchFromEvents } from './src/vcs-batch-from-events.js';
 import { createStorageWatcher } from './src/storage-watcher.js';
 
@@ -255,41 +256,11 @@ function buildVideoAnalysis(track) {
   // time 0 (recording start). This means every normalized file shares the same
   // coordinate space — seeking to time T in any file gives recording time T.
   // This simplifies AV sync: you can mux any normalized video + audio directly.
-
-  // Initial gap: black from recording start to first frame
-  const gaps = [];
-  if (probe.startTime > 0.05) {
-    gaps.push({ start: 0, end: probe.startTime });
-  }
-
-  // Pause intervals, converted to PTS space
-  for (const interval of track.pauseIntervals) {
-    const pauseAt = interval.pauseAt + ptsOffset;
-    const resumeAt = (interval.resumeAt ?? (track.removedAtSecs ?? timeline.sessionDurationSecs)) + ptsOffset;
-
-    gaps.push({
-      start: pauseAt,
-      end: resumeAt,
-    });
-  }
-
-  // Trailing gap: black from track end to session end (if track was removed early)
-  const trackEndPts = (track.removedAtSecs ?? timeline.sessionDurationSecs) + ptsOffset;
-  const sessionEndPts = timeline.sessionDurationSecs + ptsOffset;
-  if (trackEndPts < sessionEndPts - 0.1) {
-    gaps.push({ start: trackEndPts, end: sessionEndPts });
-  }
-
-  const endTime = sessionEndPts;
-
-  return {
-    isVideo: true,
-    startTime: probe.startTime,
-    endTime,
-    videoSize: probe.videoSize,
-    frameRate: probe.frameRate || 30,
-    gaps,
-  };
+  return buildAlignedVideoAnalysis(track, probe, {
+    outputStartPts: 0,
+    outputEndPts: timeline.sessionDurationSecs + ptsOffset,
+    trackEndSecs: track.removedAtSecs ?? timeline.sessionDurationSecs,
+  });
 }
 
 function buildAudioAnalysis(track) {
