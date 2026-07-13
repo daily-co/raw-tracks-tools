@@ -155,7 +155,9 @@ npm run align-audio-per-speaker -- --input /path/to/recording.event.json
 
 Output goes to a `per-speaker-audio` folder next to the event JSON, or pass `--out` (`-o`) to choose a directory. Each file is 48 kHz mono `pcm_s16le`.
 
-Best input is gapless WAV. Record with `enable_raw_tracks_transcoded_audio: wav-48k-mono` so each file is lossless and already gap-filled; then the align step is a pure delay-and-pad with no quality loss. Default `.webm` raw-tracks files work too, but they have no duration header, so the shared length falls back to the event-derived track end (a little looser).
+Best input is gapless WAV. Record with `enable_raw_tracks_transcoded_audio: wav-48k-mono` so each file is lossless and already gap-filled; then the align step is a pure delay-and-pad with no quality loss. Default `.webm` raw-tracks files work too: they have no duration header, so the tool scans their packets to find the real duration.
+
+The shared length is `MAX(start offset + duration)` across all tracks, video included, so the aligned WAVs match the full session length even when video ran past the last audio track.
 
 ## Individual track tools
 

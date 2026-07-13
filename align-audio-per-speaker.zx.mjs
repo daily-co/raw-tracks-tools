@@ -1,5 +1,6 @@
 #!/usr/bin/env zx
 import 'zx/globals';
+
 import { parseEventJson } from './src/parse-events.js';
 import { runFfmpegCommandAsync } from './src/ffexec.js';
 
@@ -17,11 +18,18 @@ import { runFfmpegCommandAsync } from './src/ffexec.js';
      (where it begins on the session timeline) and the audio tracks grouped per
      participant. A reconnect splits a participant into more than one audio track; those
      are handled too.
-  2. Pick a shared length: the end of the last-ending audio track across everyone.
+  2. Pick a shared length: MAX(startOffset + duration) across ALL tracks, video included.
+     Durations come from each file's own header, or from a packet scan for headerless
+     containers (default raw-tracks .webm).
   3. For each participant, delay each of their audio files to its offset, mix the
      fragments onto one timeline, and pad to the shared length. The filter mirrors what
      render-track.js uses for the composite path (aresample=async=1 then adelay), so a
      WebRTC opus start timestamp does not throw the alignment off.
+
+  Why audio only: the target use cases (multitrack editor, transcription, diarization)
+  consume audio. Video tracks still contribute to the shared length (step 2), so the WAVs
+  line up against a video edit. For rendered video use composite-from-events; to normalize
+  a single video track use normalize-track.
 
   Output is 48 kHz mono pcm_s16le, which matches Daily's gapless transcoded audio
   (enable_raw_tracks_transcoded_audio: wav-48k-mono). Gapless WAV is the best input here:
@@ -72,11 +80,20 @@ function resolveTrackFile(filename) {
   return null;
 }
 
-/** Duration in seconds from the file's own header, or NaN if the container lacks one
- *  (default raw-tracks .webm has no duration header; gapless WAV always does). */
+/** Duration in seconds. Reads the file's own header first (gapless WAV always has one).
+ *  Default raw-tracks .webm has no duration header, so for those we fall back to scanning
+ *  the packets and taking the last packet's pts + duration. Slower (reads the whole file,
+ *  but no decode), and it gives the real media duration instead of an event-derived guess. */
 async function probeDurationSecs(filePath) {
   const res = await $({ quiet: true, nothrow: true })`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ${filePath}`;
-  return parseFloat(res.stdout.trim());
+  const headerDur = parseFloat(res.stdout.trim());
+  if (Number.isFinite(headerDur)) return headerDur;
+
+  const pkts = await $({ quiet: true, nothrow: true })`ffprobe -v error -select_streams 0 -show_entries packet=pts_time,duration_time -of csv=p=0 ${filePath}`;
+  const lines = pkts.stdout.trim().split('\n');
+  const [pts, pktDur] = (lines[lines.length - 1] ?? '').split(',').map(parseFloat);
+  if (Number.isFinite(pts)) return pts + (Number.isFinite(pktDur) ? pktDur : 0);
+  return NaN;
 }
 
 // Group audio tracks per speaker. A reconnect (leave + rejoin) reuses the same app-set
@@ -85,13 +102,16 @@ async function probeDurationSecs(filePath) {
 // (user_name is not guaranteed unique, so two different people sharing a name would merge;
 // it is only a fallback for when user_id was not set on the token.)
 const speakerKey = (track) => track.userId || track.userName || track.participantId;
+// The name is only a human-readable label for output filenames and logs; it is never used
+// as identity (that is speakerKey's job), so displayName is fine as a fallback here.
+const speakerName = (track) => track.userName || track.displayName || speakerKey(track);
 const groups = new Map(); // key -> { name, tracks: [] }
 for (const track of timeline.tracks.values()) {
   if (track.kind !== 'audio' || !track.filename) continue;
   const key = speakerKey(track);
   if (!groups.has(key)) {
     groups.set(key, {
-      name: track.userId || track.userName || track.displayName || track.participantId,
+      name: speakerName(track),
       tracks: [],
     });
   }
@@ -134,28 +154,41 @@ if (speakers.length === 0) {
   process.exit(1);
 }
 
-// --- Step 3: Shared length = the end of the last-ending audio track across everyone ---
-const targetSecs = Math.max(...speakers.map((s) => s.latestEnd));
+// --- Step 3: Shared length = MAX(startOffset + duration) across ALL tracks ---
+// Video tracks count too (even though the output is audio only), so the aligned WAVs
+// match the full session length when video ran past the last audio track, e.g. someone
+// muted their mic but stayed on camera to the end.
+let sessionEnd = Math.max(...speakers.map((s) => s.latestEnd));
+for (const track of timeline.tracks.values()) {
+  if (track.kind === 'audio' || !track.filename) continue;
+  const filePath = resolveTrackFile(track.filename);
+  if (!filePath) continue;
+  const dur = await probeDurationSecs(filePath);
+  const end = Number.isFinite(dur)
+    ? Math.max(0, track.startOffsetSecs ?? 0) + dur
+    : (track.removedAtSecs ?? 0);
+  sessionEnd = Math.max(sessionEnd, end);
+}
+const targetSecs = sessionEnd;
 echo`\nShared length: ${targetSecs.toFixed(3)}s across ${speakers.length} speaker(s)`;
 
 // --- Step 4: Align each speaker ---
 fs.mkdirpSync(outDir);
 
-/** Make a participant name safe for a filename, and keep it unique across speakers. */
+/** Make a participant name safe for a filename, and keep it unique across speakers.
+ *  Every candidate (name, key fallback, uniqueness suffix) goes through the same
+ *  sanitizer, so an event-supplied value can never smuggle a path separator or ".."
+ *  into the output path. */
 const usedNames = new Set();
+const sanitize = (s) =>
+  String(s).replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
 function outNameFor(speaker) {
-  const sanitize = (s) =>
-    String(s ?? '')
-      .replace(/[^a-zA-Z0-9_-]/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^_|_$/g, '');
-
-  const keySafe = sanitize(speaker.key);
-  let base = sanitize(speaker.name);
-  if (!base) base = keySafe || 'speaker';
-
+  const safeKey = sanitize(speaker.key);
+  const base = sanitize(speaker.name) || safeKey || 'speaker';
   let name = base;
-  if (usedNames.has(name)) name = `${base}_${(keySafe || 'speaker').slice(0, 8)}`;
+  if (usedNames.has(name)) name = `${base}_${safeKey.slice(0, 8)}`;
+  let n = 2;
+  while (usedNames.has(name)) name = `${base}_${safeKey.slice(0, 8)}_${n++}`;
   usedNames.add(name);
   return name;
 }
