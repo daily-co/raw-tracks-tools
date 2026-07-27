@@ -542,32 +542,57 @@ const totalRenderSecs = ((Date.now() - renderStartTime) / 1000).toFixed(0);
 echo`[progress] Rendering complete in ${totalRenderSecs}s`;
 
 // --- Step 11: Concatenate segments ---
-echo`\n---- Concatenating segments ----`;
+// A segment with no video inputs renders nothing, so it contributes no line to
+// the concat list. If no segment had video (an audio-only recording, or a window
+// where every camera was off), there is nothing to concatenate and we go straight
+// to an audio-only output instead of handing ffmpeg an empty concat file.
+const hasRenderedVideo = ffmpegConcatFile.length > 0;
 
-const concatTempPath = path.resolve(tmpPath, 'video-concat.txt');
-fs.writeFileSync(concatTempPath, ffmpegConcatFile, { encoding: 'utf-8' });
+if (!hasRenderedVideo && normalizedAudioFiles.length < 1) {
+  console.error(
+    `** Nothing to render: this window has no video segments and no audio tracks.`
+  );
+  process.exit(10);
+}
 
-const concatOutputM4v = path.resolve(tmpPath, 'video-concat.m4v');
+let concatOutputM4v;
+if (hasRenderedVideo) {
+  echo`\n---- Concatenating segments ----`;
 
-await within(async () => {
-  cd(tmpPath);
-  await $({quiet: true})`${g_tools.ffmpeg} -v error -y -f concat -i ${concatTempPath} -c copy ${concatOutputM4v}`;
-});
+  const concatTempPath = path.resolve(tmpPath, 'video-concat.txt');
+  fs.writeFileSync(concatTempPath, ffmpegConcatFile, { encoding: 'utf-8' });
+
+  concatOutputM4v = path.resolve(tmpPath, 'video-concat.m4v');
+
+  await within(async () => {
+    cd(tmpPath);
+    await $({quiet: true})`${g_tools.ffmpeg} -v error -y -f concat -i ${concatTempPath} -c copy ${concatOutputM4v}`;
+  });
+} else {
+  echo`\n---- No video in this window, output will be audio only ----`;
+}
 
 // --- Step 12 & 13: Mix audio and mux ---
-let muxedOutputMp4;
+let muxedOutput;
 if (normalizedAudioFiles.length > 0) {
-  echo`\n---- Mixing audio and muxing tracks ----`;
+  echo`\n---- Mixing audio${hasRenderedVideo ? ' and muxing tracks' : ''} ----`;
 
   const mixedOutputAac = path.resolve(tmpPath, 'audio-mix.aac');
   await mixAudioFromFiles(normalizedAudioFiles, mixedOutputAac, windowStart, totalDuration_secs);
 
-  echo`--- audio mix done, will mux.`;
+  if (hasRenderedVideo) {
+    echo`--- audio mix done, will mux.`;
 
-  muxedOutputMp4 = path.resolve(tmpPath, 'final.mp4');
-  await $({quiet: true})`ffmpeg -hide_banner -v error -y -i ${concatOutputM4v} -i ${mixedOutputAac} -t ${totalDuration_secs} -c copy -map 0:0 -map 1:0 ${muxedOutputMp4}`;
+    muxedOutput = path.resolve(tmpPath, 'final.mp4');
+    await $({quiet: true})`ffmpeg -hide_banner -v error -y -i ${concatOutputM4v} -i ${mixedOutputAac} -t ${totalDuration_secs} -c copy -map 0:0 -map 1:0 ${muxedOutput}`;
+  } else {
+    echo`--- audio mix done, will write audio-only file.`;
+
+    muxedOutput = path.resolve(tmpPath, 'final.m4a');
+    await $({quiet: true})`ffmpeg -hide_banner -v error -y -i ${mixedOutputAac} -t ${totalDuration_secs} -c copy ${muxedOutput}`;
+  }
 }
-const finalOutputTmp = muxedOutputMp4 ?? concatOutputM4v;
+const finalOutputTmp = muxedOutput ?? concatOutputM4v;
 
 let finalOutputDst = argv['output-video'] ?? argv['o'];
 if (!finalOutputDst) {
