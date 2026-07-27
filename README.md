@@ -96,6 +96,8 @@ npm run composite-from-events -- \
 | `-w` | Output width | `1280` |
 | `-h` | Output height | `720` |
 | `-p` | Composition params JSON file | grid mode with labels |
+| `--individual-tracks` | Export each track as its own file instead of compositing | off |
+| `--audio-codec` | Audio codec for individual track export, `aac` or `wav` (only valid with `--individual-tracks`) | `aac` |
 
 **Features:**
 
@@ -104,6 +106,23 @@ npm run composite-from-events -- \
 - Hardware-accelerated encoding (VideoToolbox on macOS)
 - Normalized track caching across runs (different `--start`/`--duration` reuse the same cache)
 - Support for gapless transcoded audio (WAV/AAC files skip normalization)
+
+### Exporting individual tracks
+
+Pass `--individual-tracks` to skip compositing and instead write one output file per track: audio tracks as `.m4a`, video tracks as `.mp4`. Output files are named after the source track files and written next to the event JSON (or to the directory given with `-o`, which in this mode names a directory rather than a file).
+
+```
+npm run composite-from-events -- \
+  -i $PATH_TO_EVENT_JSON \
+  --individual-tracks
+```
+
+Notes:
+
+- The VCS SDK is not required in this mode (`--vcs-sdk-path` can be omitted).
+- Pass `--audio-codec wav` to emit mono 48 kHz PCM WAV files instead of `.m4a`, matching the `normalize-track` tool's WAV output.
+- Each output is padded to the shared recording timeline (silence/black frames from recording start), so position T in any file is recording time T — the files stay in sync when loaded together in an editor.
+- `--start`/`--duration` trim each output and add a `_s<start>_d<duration>` filename suffix. Trims use stream copy, so video cuts land on the nearest keyframe.
 
 ### Specifying the output location
 
