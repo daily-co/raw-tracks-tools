@@ -496,9 +496,18 @@ if (individualTracks) {
 
   const outputFiles = [];
 
-  async function exportTrack(srcFile, dstFile, codecArgs = ['-c', 'copy'], filterArgs = []) {
+  // useInputSeek trims with an input-side -ss. The audio path trims inside the
+  // filter graph instead, because -ss would seek in the source file's own time
+  // base, which for a gapless track is not the recording timeline.
+  async function exportTrack(
+    srcFile,
+    dstFile,
+    codecArgs = ['-c', 'copy'],
+    filterArgs = [],
+    useInputSeek = true
+  ) {
     const args = [];
-    if (windowStart > 0) args.push('-ss', windowStart);
+    if (useInputSeek && windowStart > 0) args.push('-ss', windowStart);
     args.push('-i', srcFile, ...filterArgs, ...codecArgs, '-t', windowDuration, dstFile);
     await $({quiet: true})`${g_tools.ffmpeg} -v error -y ${args}`;
     outputFiles.push(dstFile);
@@ -529,16 +538,35 @@ if (individualTracks) {
     echo`[progress] Audio track: ${track.displayName} (${basename})`;
 
     // Gapless transcoded sources (WAV or AAC) are used directly, no normalized
-    // cache file.
+    // cache file. Unlike the normalized webm output they are NOT padded from
+    // time 0: the file begins at the participant's join, so it needs adelay to
+    // land on the recording timeline.
     const isGaplessTranscoded =
       track.contentType && track.contentType !== 'audio/webm';
     const srcFile = isGaplessTranscoded
       ? track.filePath
       : path.resolve(g_cacheDir, `${basename}_normalized.${audioCodec}`);
+    const headDelayMs = isGaplessTranscoded
+      ? Math.floor(track.startOffsetSecs * 1000)
+      : 0;
 
-    // apad extends the tail with silence and the -t in exportTrack stops it at
-    // the window end, so every track spans the full recording timeline.
-    await exportTrack(srcFile, dstFile, audioCodecArgs, ['-af', 'apad']);
+    // Place the track on the recording timeline, cut to the window, then pad the
+    // tail. The -t in exportTrack is what stops apad, so every audio output
+    // spans the window and position T is recording time windowStart + T.
+    const filters = [];
+    if (headDelayMs > 0) filters.push(`adelay=${headDelayMs}:all=true`);
+    if (windowStart > 0) {
+      filters.push(`atrim=start=${windowStart}`, 'asetpts=N/SR/TB');
+    }
+    filters.push('apad');
+
+    await exportTrack(
+      srcFile,
+      dstFile,
+      audioCodecArgs,
+      ['-af', filters.join(',')],
+      false
+    );
   }
 
   storageWatcher.stop();
