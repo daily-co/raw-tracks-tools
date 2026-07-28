@@ -121,8 +121,9 @@ Notes:
 
 - The VCS SDK is not required in this mode (`--vcs-sdk-path` can be omitted).
 - Pass `--audio-codec wav` to emit mono 48 kHz PCM WAV files instead of `.m4a`, matching the `normalize-track` tool's WAV output.
-- Each output is padded to the shared recording timeline (silence/black frames from recording start), so position T in any file is recording time T — the files stay in sync when loaded together in an editor.
-- `--start`/`--duration` trim each output and add a `_s<start>_d<duration>` filename suffix. Trims use stream copy, so video cuts land on the nearest keyframe.
+- Every output starts at the recording start, so position T in any file is recording time T and the files line up when loaded together in an editor. Audio tracks are padded with silence at both ends, so each one spans the whole window and they all come out the same length.
+- Video tails are NOT padded. A video file ends where its source ends, so per-speaker video files are shorter than the session and are not all the same length. Only the head is padded (black from recording start to the first frame). If you need video padded to the session length, pad it yourself, for example `ffmpeg -i in.mp4 -vf tpad=stop_mode=add:stop_duration=<secs> out.mp4`.
+- `--start`/`--duration` trim each output and add a `_s<start>_d<duration>` filename suffix. Audio is trimmed in the filter graph and is sample accurate. Video trims use stream copy, so video cuts land on the nearest keyframe.
 
 ### Specifying the output location
 
