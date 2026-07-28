@@ -63,6 +63,8 @@ export function parseEventJson(eventJson) {
       const track = {
         trackSessionNum,
         participantId: participant_id,
+        userId: null, // app-set user_id; arrives on recording-media-started. Stable across a reconnect.
+        userName: null, // app-set user_name; also on recording-media-started.
         displayName,
         kind,
         trackType,
@@ -102,7 +104,7 @@ export function parseEventJson(eventJson) {
         p.audioTrackNums.push(trackSessionNum);
       }
     } else if (type === 'recording-media-started') {
-      const { trackSessionNum, uri, mediaStartTime, contentType } = data;
+      const { trackSessionNum, uri, mediaStartTime, contentType, user_id, user_name } = data;
       const track = tracks.get(trackSessionNum);
       if (!track) {
         console.warn(
@@ -119,6 +121,8 @@ export function parseEventJson(eventJson) {
       track.contentType = contentType ?? null;
       track.mediaStartTime = mediaStartTime;
       track.startOffsetSecs = mediaStartTime - recordingStartSecs;
+      track.userId = user_id || null;
+      track.userName = user_name || null;
     } else if (type === 'track-paused') {
       const { trackSessionNum } = data;
       const track = tracks.get(trackSessionNum);

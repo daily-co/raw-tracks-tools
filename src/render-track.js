@@ -189,7 +189,9 @@ export async function normalizeVideoTrackToM4V(
   const { videoSize, frameRate = 30, endTime, gaps } = analysis;
 
   const segments = [];
-  let t = 0;
+  // Output normally begins at PTS 0; a caller aligning a mid-session fragment can set
+  // analysis.outputStartTime so the output covers exactly [outputStartTime, endTime].
+  let t = analysis.outputStartTime ?? 0;
   for (const gap of gaps) {
     if (gap.start > t) {
       segments.push({ start: t, end: gap.start, type: 'src' });
@@ -210,6 +212,12 @@ export async function normalizeVideoTrackToM4V(
 
   const encoderArgs = getVideoEncoderArgs(bitRate);
   const baseArgs = ['-r', frameRate, ...encoderArgs];
+  // A small GOP bounds how far a -ss stream-copy cut can land from the requested time
+  // (it snaps to a keyframe). Callers that cut mid-file (pauses, reconnect slices) pass
+  // this; the default leaves the encoder's own GOP so cached outputs stay unchanged.
+  if (opts.gopSizeFrames > 0) {
+    baseArgs.push('-g', String(Math.round(opts.gopSizeFrames)));
+  }
   let args;
 
   const tmpDir = '/tmp';
