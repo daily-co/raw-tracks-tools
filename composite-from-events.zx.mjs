@@ -31,34 +31,53 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // --- Parse CLI args ---
 
-let vcsRenderDir = argv['vcsrender-path'];
-const vcsSdkDir = argv['vcs-sdk-path'];
-if (!vcsSdkDir) {
-  echo`VCS SDK directory must be provided with --vcs-sdk-path`;
+// Individual tracks mode: export each normalized track as its own file
+// (audio -> .m4a, video -> .mp4) instead of compositing. No VCS render needed.
+const individualTracks = Boolean(argv['individual-tracks']);
+
+// Audio output codec for individual tracks mode: 'aac' (-> .m4a) or 'wav'.
+// Same flag as the normalize-track tool.
+const audioCodec = String(argv['audio-codec'] ?? 'aac').toLowerCase();
+if (!['aac', 'wav'].includes(audioCodec)) {
+  echo`audio-codec must be either "aac" or "wav"`;
   process.exit(1);
 }
-if (!vcsRenderDir) {
-  vcsRenderDir = path.resolve(vcsSdkDir, 'server-render', 'vcsrender');
+if (audioCodec === 'wav' && !individualTracks) {
+  echo`--audio-codec wav is only supported with --individual-tracks (the composite output requires AAC audio)`;
+  process.exit(1);
 }
+
+let vcsRenderDir = argv['vcsrender-path'];
+const vcsSdkDir = argv['vcs-sdk-path'];
 
 const g_tools = {
   node: 'node',
   ffmpeg: 'ffmpeg',
   ffprobe: 'ffprobe',
-  vcsRender: path.resolve(vcsRenderDir, 'build', 'vcsrender'),
-  vcsBatchRunnerScript: path.resolve(vcsSdkDir, 'js', 'vcs-batch-runner.js'),
 };
-if (!fs.existsSync(g_tools.vcsRender)) {
-  echo`VCSRender must be available at ${g_tools.vcsRender}`;
-  process.exit(1);
-}
-if (!fs.existsSync(g_tools.vcsBatchRunnerScript)) {
-  echo`VCS SDK directory must contain js subdir with the batch runner script`;
-  process.exit(1);
-}
 
-// Verify VCS SDK has the features we need (layout animations, standardSourceMessage, etc.)
-{
+if (!individualTracks) {
+  if (!vcsSdkDir) {
+    echo`VCS SDK directory must be provided with --vcs-sdk-path`;
+    process.exit(1);
+  }
+  if (!vcsRenderDir) {
+    vcsRenderDir = path.resolve(vcsSdkDir, 'server-render', 'vcsrender');
+  }
+
+  g_tools.vcsRender = path.resolve(vcsRenderDir, 'build', 'vcsrender');
+  g_tools.vcsBatchRunnerScript = path.resolve(vcsSdkDir, 'js', 'vcs-batch-runner.js');
+
+  if (!fs.existsSync(g_tools.vcsRender)) {
+    echo`VCSRender must be available at ${g_tools.vcsRender}`;
+    process.exit(1);
+  }
+  if (!fs.existsSync(g_tools.vcsBatchRunnerScript)) {
+    echo`VCS SDK directory must contain js subdir with the batch runner script`;
+    process.exit(1);
+  }
+
+  // Verify VCS SDK has the features we need (layout animations, standardSourceMessage, etc.)
   const batchRunnerSrc = fs.readFileSync(g_tools.vcsBatchRunnerScript, 'utf-8');
   const batchUtilPath = path.resolve(vcsSdkDir, 'js', 'lib-node', 'batch-util.js');
   const batchUtilSrc = fs.existsSync(batchUtilPath) ? fs.readFileSync(batchUtilPath, 'utf-8') : '';
@@ -201,16 +220,19 @@ videoTracksInWindow.sort((a, b) => a.startOffsetSecs - b.startOffsetSecs);
 
 echo`\nTracks in window: ${videoTracksInWindow.length} video, ${audioTracksInWindow.length} audio`;
 
-const MAX_VIDEO_IDS = 20;
-if (videoTracksInWindow.length > MAX_VIDEO_IDS) {
-  echo`Warning: ${videoTracksInWindow.length} video tracks exceed max ${MAX_VIDEO_IDS}, truncating`;
-  videoTracksInWindow.length = MAX_VIDEO_IDS;
-}
+// The video input cap and IDs only apply to VCS compositing, not individual export.
+if (!individualTracks) {
+  const MAX_VIDEO_IDS = 20;
+  if (videoTracksInWindow.length > MAX_VIDEO_IDS) {
+    echo`Warning: ${videoTracksInWindow.length} video tracks exceed max ${MAX_VIDEO_IDS}, truncating`;
+    videoTracksInWindow.length = MAX_VIDEO_IDS;
+  }
 
-// Assign VCS video input IDs
-const VIDEO_INPUT_ID_NUM_PREFIX = 1001;
-for (const [idx, track] of videoTracksInWindow.entries()) {
-  track.videoInputId = VIDEO_INPUT_ID_NUM_PREFIX + idx;
+  // Assign VCS video input IDs
+  const VIDEO_INPUT_ID_NUM_PREFIX = 1001;
+  for (const [idx, track] of videoTracksInWindow.entries()) {
+    track.videoInputId = VIDEO_INPUT_ID_NUM_PREFIX + idx;
+  }
 }
 
 // --- Step 4: Probe each webm ---
@@ -331,7 +353,8 @@ async function normalizeNextVideo() {
     const basename = path.basename(track.filename, '.webm');
     const outputFile = path.resolve(g_cacheDir, `${basename}_normalized.m4v`);
 
-    if (fs.existsSync(outputFile)) {
+    // An empty file means a previous normalization run failed or was interrupted.
+    if (fs.existsSync(outputFile) && fs.statSync(outputFile).size > 0) {
       normalizeVideosDone++;
       echo`[progress] Video ${normalizeVideosDone}/${videoTracksInWindow.length}: ${track.displayName} (cached)`;
     } else {
@@ -418,9 +441,10 @@ const audioPromises = audioTracksInWindow.map(async (track, audioIdx) => {
   const analysis = buildAudioAnalysis(track);
   const inputExt = path.extname(track.filename);
   const basename = path.basename(track.filename, inputExt);
-  const outputFile = path.resolve(g_cacheDir, `${basename}_normalized.aac`);
+  const outputFile = path.resolve(g_cacheDir, `${basename}_normalized.${audioCodec}`);
 
-  if (fs.existsSync(outputFile)) {
+  // An empty file means a previous normalization run failed or was interrupted.
+  if (fs.existsSync(outputFile) && fs.statSync(outputFile).size > 0) {
     normalizeAudiosDone++;
     echo`[progress] Audio ${normalizeAudiosDone}/${audioTracksInWindow.length}: ${track.displayName} (cached)`;
   } else {
@@ -430,7 +454,7 @@ const audioPromises = audioTracksInWindow.map(async (track, audioIdx) => {
       analysis,
       track.filePath,
       outputFile,
-      'aac',
+      audioCodec,
       {
         quiet: true,
         onProgress: ({ outTimeSecs, speed }) => {
@@ -450,6 +474,109 @@ const audioPromises = audioTracksInWindow.map(async (track, audioIdx) => {
 // Wait for both video and audio normalization
 await Promise.all([...videoWorkers, ...audioPromises]);
 echo`---- Normalize finished.\n`;
+
+// --- Individual tracks mode: export each normalized track, skip compositing ---
+if (individualTracks) {
+  echo`--- Exporting individual tracks ---`;
+
+  // In this mode -o names an output directory rather than a single file.
+  let outDir = argv['output-video'] ?? argv['o'];
+  if (outDir) {
+    outDir = path.resolve(outDir);
+    fs.mkdirpSync(outDir);
+  } else {
+    outDir = eventJsonDir;
+  }
+
+  let windowSuffix = '';
+  if (windowStart > 0 || windowDurationArg != null) {
+    windowSuffix = `_s${Math.round(windowStart)}`;
+    if (windowDurationArg != null) windowSuffix += `_d${Math.round(windowDurationArg)}`;
+  }
+
+  const outputFiles = [];
+
+  // useInputSeek trims with an input-side -ss. The audio path trims inside the
+  // filter graph instead, because -ss would seek in the source file's own time
+  // base, which for a gapless track is not the recording timeline.
+  async function exportTrack(
+    srcFile,
+    dstFile,
+    codecArgs = ['-c', 'copy'],
+    filterArgs = [],
+    useInputSeek = true
+  ) {
+    const args = [];
+    if (useInputSeek && windowStart > 0) args.push('-ss', windowStart);
+    args.push('-i', srcFile, ...filterArgs, ...codecArgs, '-t', windowDuration, dstFile);
+    await $({quiet: true})`${g_tools.ffmpeg} -v error -y ${args}`;
+    outputFiles.push(dstFile);
+  }
+
+  for (const [idx, track] of videoTracksInWindow.entries()) {
+    const basename = path.basename(track.filename, path.extname(track.filename));
+    echo`[progress] Video track: ${track.displayName} (${basename})`;
+    await exportTrack(
+      normalizedVideoFiles[idx],
+      path.resolve(outDir, `${basename}${windowSuffix}.mp4`)
+    );
+  }
+
+  const audioOutExt = audioCodec === 'wav' ? '.wav' : '.m4a';
+
+  // Padding the tail with silence needs a decode/encode pass, so the audio path
+  // always sets explicit codec args rather than stream-copying.
+  const audioCodecArgs =
+    audioCodec === 'wav'
+      ? ['-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '1']
+      : ['-c:a', 'aac', '-b:a', '256k', '-ar', '48000'];
+
+  for (const track of audioTracksInWindow) {
+    const inputExt = path.extname(track.filename);
+    const basename = path.basename(track.filename, inputExt);
+    const dstFile = path.resolve(outDir, `${basename}${windowSuffix}${audioOutExt}`);
+    echo`[progress] Audio track: ${track.displayName} (${basename})`;
+
+    // Gapless transcoded sources (WAV or AAC) are used directly, no normalized
+    // cache file. Unlike the normalized webm output they are NOT padded from
+    // time 0: the file begins at the participant's join, so it needs adelay to
+    // land on the recording timeline.
+    const isGaplessTranscoded =
+      track.contentType && track.contentType !== 'audio/webm';
+    const srcFile = isGaplessTranscoded
+      ? track.filePath
+      : path.resolve(g_cacheDir, `${basename}_normalized.${audioCodec}`);
+    const headDelayMs = isGaplessTranscoded
+      ? Math.floor(track.startOffsetSecs * 1000)
+      : 0;
+
+    // Place the track on the recording timeline, cut to the window, then pad the
+    // tail. The -t in exportTrack is what stops apad, so every audio output
+    // spans the window and position T is recording time windowStart + T.
+    const filters = [];
+    if (headDelayMs > 0) filters.push(`adelay=${headDelayMs}:all=true`);
+    if (windowStart > 0) {
+      filters.push(`atrim=start=${windowStart}`, 'asetpts=N/SR/TB');
+    }
+    filters.push('apad');
+
+    await exportTrack(
+      srcFile,
+      dstFile,
+      audioCodecArgs,
+      ['-af', filters.join(',')],
+      false
+    );
+  }
+
+  storageWatcher.stop();
+  echo`\n${storageWatcher.summary()}`;
+
+  echo`\n------\nComposite-from-events tool has finished.`;
+  echo`Individual track outputs (${outputFiles.length}):`;
+  for (const f of outputFiles) echo`${f}`;
+  process.exit(0);
+}
 
 // --- Step 8: Generate VCS batch JSON ---
 const totalDuration_secs = windowDuration;
