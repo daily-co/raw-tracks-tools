@@ -496,11 +496,10 @@ if (individualTracks) {
 
   const outputFiles = [];
 
-  async function exportTrack(srcFile, dstFile, codecArgs = ['-c', 'copy']) {
+  async function exportTrack(srcFile, dstFile, codecArgs = ['-c', 'copy'], filterArgs = []) {
     const args = [];
     if (windowStart > 0) args.push('-ss', windowStart);
-    if (windowDurationArg != null) args.push('-t', windowDuration);
-    args.push('-i', srcFile, ...codecArgs, dstFile);
+    args.push('-i', srcFile, ...filterArgs, ...codecArgs, '-t', windowDuration, dstFile);
     await $({quiet: true})`${g_tools.ffmpeg} -v error -y ${args}`;
     outputFiles.push(dstFile);
   }
@@ -515,30 +514,31 @@ if (individualTracks) {
   }
 
   const audioOutExt = audioCodec === 'wav' ? '.wav' : '.m4a';
+
+  // Padding the tail with silence needs a decode/encode pass, so the audio path
+  // always sets explicit codec args rather than stream-copying.
+  const audioCodecArgs =
+    audioCodec === 'wav'
+      ? ['-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '1']
+      : ['-c:a', 'aac', '-b:a', '256k', '-ar', '48000'];
+
   for (const track of audioTracksInWindow) {
     const inputExt = path.extname(track.filename);
     const basename = path.basename(track.filename, inputExt);
     const dstFile = path.resolve(outDir, `${basename}${windowSuffix}${audioOutExt}`);
     echo`[progress] Audio track: ${track.displayName} (${basename})`;
 
+    // Gapless transcoded sources (WAV or AAC) are used directly, no normalized
+    // cache file.
     const isGaplessTranscoded =
       track.contentType && track.contentType !== 'audio/webm';
-    if (isGaplessTranscoded) {
-      // Source (WAV or AAC) is used directly, no normalized cache file.
-      // Stream-copy when the source already matches the output codec.
-      let codecArgs;
-      if (audioCodec === 'wav' && inputExt !== '.wav') {
-        codecArgs = ['-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '1'];
-      } else if (audioCodec === 'aac' && inputExt === '.wav') {
-        codecArgs = ['-c:a', 'aac', '-b:a', '256k', '-ar', '48000'];
-      }
-      await exportTrack(track.filePath, dstFile, codecArgs);
-    } else {
-      await exportTrack(
-        path.resolve(g_cacheDir, `${basename}_normalized.${audioCodec}`),
-        dstFile
-      );
-    }
+    const srcFile = isGaplessTranscoded
+      ? track.filePath
+      : path.resolve(g_cacheDir, `${basename}_normalized.${audioCodec}`);
+
+    // apad extends the tail with silence and the -t in exportTrack stops it at
+    // the window end, so every track spans the full recording timeline.
+    await exportTrack(srcFile, dstFile, audioCodecArgs, ['-af', 'apad']);
   }
 
   storageWatcher.stop();
