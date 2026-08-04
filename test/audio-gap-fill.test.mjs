@@ -24,7 +24,7 @@ import * as os from 'node:os';
 import * as Path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { normalizeAudioTrack } from '../src/render-track.js';
+import { normalizeAudioTrack, audioHeadDelayMs } from '../src/render-track.js';
 import { analyzeTrack } from '../src/analyze-track.js';
 
 const SAMPLE_RATE = 48000;
@@ -183,4 +183,30 @@ test('normalizeAudioTrack fills sub-100ms PTS holes', async (t) => {
       `than the clean control, but it is ${(delta * 1000).toFixed(1)}ms longer ` +
       `(${missing.toFixed(1)}ms of holes were not filled)`
   );
+});
+
+// A negative start_time is not hypothetical: ffprobe reports one for Opus when
+// the preskip samples put the first decodable sample marginally before the
+// container's zero point. adelay rejects a negative delay and ffmpeg exits
+// non-zero, so before clamping this failed the whole track. Math.floor was
+// actively unhelpful here, because on a negative value it rounds away from
+// zero.
+test('audioHeadDelayMs never yields a delay adelay would reject', () => {
+  assert.equal(audioHeadDelayMs(-0.0065), 0, 'Opus preskip must clamp to 0');
+  assert.equal(audioHeadDelayMs(-5), 0, 'large negative must clamp to 0');
+  assert.equal(audioHeadDelayMs(0), 0);
+  assert.equal(audioHeadDelayMs(1.2), 1200, 'positive delays pass through');
+  assert.equal(audioHeadDelayMs(0.0009), 0, 'sub-millisecond floors to 0');
+  assert.equal(audioHeadDelayMs(undefined), 0, 'missing start_time must not NaN');
+  assert.equal(audioHeadDelayMs(NaN), 0, 'NaN must not reach the filter graph');
+
+  // The real point: whatever comes in, the value handed to adelay is a
+  // non-negative integer, so the filter string can never be malformed.
+  for (const v of [-10, -0.5, -0.001, 0, 0.001, 3.7, 120.25, NaN, undefined]) {
+    const ms = audioHeadDelayMs(v);
+    assert.ok(
+      Number.isInteger(ms) && ms >= 0,
+      `audioHeadDelayMs(${v}) returned ${ms}, which adelay would reject`
+    );
+  }
 });

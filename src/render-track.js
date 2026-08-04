@@ -33,6 +33,19 @@ export function audioNormalizedCacheName(basename, audioCodec) {
   return `${basename}_normalized_${AUDIO_NORMALIZE_VERSION}.${audioCodec}`;
 }
 
+// adelay rejects a negative delay and ffmpeg exits non-zero, so a track whose
+// start_time is below zero fails to normalize at all. ffprobe does report
+// negative start_time for Opus: the preskip samples put the first decodable
+// sample marginally before the container's zero point. Math.floor makes that
+// worse rather than safer, because on a negative value it rounds away from
+// zero. Clamping costs at most one preskip of head position (single-digit
+// milliseconds), which is far below the misalignment the filter chain above
+// exists to prevent, and it beats failing the whole track.
+export function audioHeadDelayMs(startTimeSecs) {
+  if (!Number.isFinite(startTimeSecs)) return 0;
+  return Math.max(0, Math.floor(startTimeSecs * 1000));
+}
+
 let g_audioEncoderArgs;
 let g_videoEncoderArgs;
 
@@ -149,8 +162,8 @@ async function normalizeAudioTrackToAAC(
     inputPath,
     '-af',
     // ffmpeg quirk: aresample needs to come before adelay in the filter chain
-    `${g_audioGapFillFilter},adelay=${Math.floor(
-      analysis.startTime * 1000
+    `${g_audioGapFillFilter},adelay=${audioHeadDelayMs(
+      analysis.startTime
     )}:all=true`,
     ...getAudioEncoderArgs(),
   ];
@@ -177,8 +190,8 @@ async function normalizeAudioTrackToWav(
     '-i',
     inputPath,
     '-af',
-    `${g_audioGapFillFilter},adelay=${Math.floor(
-      analysis.startTime * 1000
+    `${g_audioGapFillFilter},adelay=${audioHeadDelayMs(
+      analysis.startTime
     )}:all=true`,
     '-ar',
     '48000',
