@@ -122,6 +122,7 @@ Notes:
 - The VCS SDK is not required in this mode (`--vcs-sdk-path` can be omitted).
 - Pass `--audio-codec wav` to emit mono 48 kHz PCM WAV files instead of `.m4a`, matching the `normalize-track` tool's WAV output.
 - Every output starts at the recording start, so position T in any file is recording time T and the files line up when loaded together in an editor. Audio tracks are padded with silence at both ends, so each one spans the whole window and they all come out the same length.
+- Mid-file audio holes left by unrecovered packet loss are filled with silence at the point where the loss happened, so audio stays sample aligned to the recording timeline and separate participants stay aligned to each other.
 - Video tails are NOT padded. A video file ends where its source ends, so per-speaker video files are shorter than the session and are not all the same length. Only the head is padded (black from recording start to the first frame). If you need video padded to the session length, pad it yourself, for example `ffmpeg -i in.mp4 -vf tpad=stop_mode=add:stop_duration=<secs> out.mp4`.
 - `--start`/`--duration` trim each output and add a `_s<start>_d<duration>` filename suffix. Audio is trimmed in the filter graph and is sample accurate. Video trims use stream copy, so video cuts land on the nearest keyframe.
 
@@ -180,6 +181,7 @@ Takes one or two webm files from raw-tracks recordings and processes them into a
 - Any low-resolution samples within the video track are upscaled to the maximum resolution detected
 - Video track's color space is converted to BT.709 standard if required
 - Audio and video tracks are padded so they start at the same time
+- Audio holes left by unrecovered packet loss are filled with silence in place, so samples stay at their true recording-timeline positions
 
 If you pass both a video and an audio file, a combined MPEG-4 file is written.
 
