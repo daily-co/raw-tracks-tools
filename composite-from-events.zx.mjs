@@ -5,6 +5,7 @@ import * as util from 'node:util';
 
 import { parseEventJson } from './src/parse-events.js';
 import { probeTrack } from './src/probe-track.js';
+import { buildAudioAnalysis } from './src/audio-analysis.js';
 import {
   normalizeVideoTrackToM4V,
   normalizeAudioTrack,
@@ -318,23 +319,6 @@ function buildVideoAnalysis(track) {
   };
 }
 
-function buildAudioAnalysis(track) {
-  const probe = probeResults.get(track.trackSessionNum);
-  if (!probe) throw new Error(`No probe result for track ${track.trackSessionNum}`);
-
-  // adelay pads from time 0 to probe.startTime, matching the video normalization
-  // which pads with black from 0 to first frame. Both files share the same
-  // timeline: position T = recording time T.
-  const ptsOffset = probe.startTime - track.startOffsetSecs;
-  const sessionEndPts = timeline.sessionDurationSecs + ptsOffset;
-
-  return {
-    isVideo: false,
-    startTime: probe.startTime,
-    endTime: sessionEndPts,
-  };
-}
-
 // --- Step 6 & 7: Normalize tracks ---
 echo`\n--- Normalizing video tracks ---`;
 
@@ -430,19 +414,17 @@ for (let i = 0; i < Math.min(VIDEO_CONCURRENCY, videoTracksInWindow.length); i++
 // Normalize audio tracks concurrently
 echo`\n--- Normalizing audio tracks ---`;
 const audioPromises = audioTracksInWindow.map(async (track, audioIdx) => {
-  // Gapless transcoded audio (WAV or AAC) is already silence-padded and can be
-  // used directly without normalization.
-  const isGaplessTranscoded =
-    track.contentType && track.contentType !== 'audio/webm';
-
-  if (isGaplessTranscoded) {
-    normalizeAudiosDone++;
-    echo`[progress] Audio ${normalizeAudiosDone}/${audioTracksInWindow.length}: ${track.displayName} (gapless transcoded, no normalization needed)`;
-    normalizedAudioFiles.push(track.filePath);
-    return;
-  }
-
-  const analysis = buildAudioAnalysis(track);
+  // Every audio track goes through normalization, including gapless transcoded
+  // (WAV or AAC) sources. They need no gap filling, but they DO need the head
+  // delay that places them on the recording timeline, and passing them straight
+  // into the mix skipped it and dropped each participant to the start of the
+  // call. Routing both kinds through one path is what keeps the mix and the
+  // individual-tracks export from disagreeing about that placement.
+  const analysis = buildAudioAnalysis(
+    track,
+    probeResults.get(track.trackSessionNum),
+    timeline.sessionDurationSecs
+  );
   const inputExt = path.extname(track.filename);
   const basename = path.basename(track.filename, inputExt);
   const outputFile = path.resolve(
@@ -544,24 +526,18 @@ if (individualTracks) {
     const dstFile = path.resolve(outDir, `${basename}${windowSuffix}${audioOutExt}`);
     echo`[progress] Audio track: ${track.displayName} (${basename})`;
 
-    // Gapless transcoded sources (WAV or AAC) are used directly, no normalized
-    // cache file. Unlike the normalized webm output they are NOT padded from
-    // time 0: the file begins at the participant's join, so it needs adelay to
-    // land on the recording timeline.
-    const isGaplessTranscoded =
-      track.contentType && track.contentType !== 'audio/webm';
-    const srcFile = isGaplessTranscoded
-      ? track.filePath
-      : path.resolve(g_cacheDir, audioNormalizedCacheName(basename, audioCodec));
-    const headDelayMs = isGaplessTranscoded
-      ? Math.floor(track.startOffsetSecs * 1000)
-      : 0;
+    // Every audio track, transcoded or not, now comes from the normalized cache
+    // with its head delay already applied, so there is nothing to special-case
+    // here and no adelay left to add.
+    const srcFile = path.resolve(
+      g_cacheDir,
+      audioNormalizedCacheName(basename, audioCodec)
+    );
 
-    // Place the track on the recording timeline, cut to the window, then pad the
-    // tail. The -t in exportTrack is what stops apad, so every audio output
-    // spans the window and position T is recording time windowStart + T.
+    // Cut to the window, then pad the tail. The -t in exportTrack is what stops
+    // apad, so every audio output spans the window and position T is recording
+    // time windowStart + T.
     const filters = [];
-    if (headDelayMs > 0) filters.push(`adelay=${headDelayMs}:all=true`);
     if (windowStart > 0) {
       filters.push(`atrim=start=${windowStart}`, 'asetpts=N/SR/TB');
     }
