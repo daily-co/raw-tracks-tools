@@ -5,7 +5,11 @@ import * as util from 'node:util';
 
 import { parseEventJson } from './src/parse-events.js';
 import { probeTrack } from './src/probe-track.js';
-import { normalizeVideoTrackToM4V, normalizeAudioTrack } from './src/render-track.js';
+import {
+  normalizeVideoTrackToM4V,
+  normalizeAudioTrack,
+  audioNormalizedCacheName,
+} from './src/render-track.js';
 import { writeVcsBatchFromEvents } from './src/vcs-batch-from-events.js';
 import { createStorageWatcher } from './src/storage-watcher.js';
 
@@ -441,7 +445,10 @@ const audioPromises = audioTracksInWindow.map(async (track, audioIdx) => {
   const analysis = buildAudioAnalysis(track);
   const inputExt = path.extname(track.filename);
   const basename = path.basename(track.filename, inputExt);
-  const outputFile = path.resolve(g_cacheDir, `${basename}_normalized.${audioCodec}`);
+  const outputFile = path.resolve(
+    g_cacheDir,
+    audioNormalizedCacheName(basename, audioCodec)
+  );
 
   // An empty file means a previous normalization run failed or was interrupted.
   if (fs.existsSync(outputFile) && fs.statSync(outputFile).size > 0) {
@@ -545,7 +552,7 @@ if (individualTracks) {
       track.contentType && track.contentType !== 'audio/webm';
     const srcFile = isGaplessTranscoded
       ? track.filePath
-      : path.resolve(g_cacheDir, `${basename}_normalized.${audioCodec}`);
+      : path.resolve(g_cacheDir, audioNormalizedCacheName(basename, audioCodec));
     const headDelayMs = isGaplessTranscoded
       ? Math.floor(track.startOffsetSecs * 1000)
       : 0;

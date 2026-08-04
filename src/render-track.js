@@ -19,6 +19,20 @@ const g_tempFilePrefix = 'rawtracks_';
 // filled at its true position, while still keeping a deadband against
 // sub-frame timestamp noise from Matroska's millisecond timestamps.
 const g_audioGapFillFilter = 'aresample=async=1:min_hard_comp=0.01';
+
+// Bump this whenever the audio normalization filter graph above changes. The
+// cache in video-cache/ is keyed on the source basename alone, so without a
+// version in the name a re-run happily reuses a file produced by the older
+// filter and logs it as "(cached)". Cached audio written before the
+// min_hard_comp fix has its holes in the wrong places, so reusing it would
+// silently undo the fix on exactly the sessions someone is most likely to
+// re-run: the ones they already processed and found misaligned.
+export const AUDIO_NORMALIZE_VERSION = 'v2';
+
+export function audioNormalizedCacheName(basename, audioCodec) {
+  return `${basename}_normalized_${AUDIO_NORMALIZE_VERSION}.${audioCodec}`;
+}
+
 let g_audioEncoderArgs;
 let g_videoEncoderArgs;
 

@@ -40,9 +40,9 @@ const TOTAL_HOLE_SECS = HOLE_TIMES.length * HOLE_SIZE_SECS;
 const START_OFFSET_SECS = 1.2;
 
 function makeWebm(outPath, holeTimes) {
-  // asetpts and aresample must be built in one filter chain, and the file must
-  // be written straight to WebM. Writing an intermediate WAV would renormalize
-  // the timestamps and silently discard the holes we are trying to inject.
+  // The file must be written straight to WebM. Writing an intermediate WAV
+  // would renormalize the timestamps and silently discard the holes we are
+  // trying to inject, so the test would pass even against broken code.
   const holeSamples = Math.round(HOLE_SIZE_SECS * SAMPLE_RATE);
   const offsetExpr = holeTimes.length
     ? '+' + holeTimes.map((t) => `${holeSamples}*gt(T,${t})`).join('+')
