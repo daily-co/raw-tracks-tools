@@ -12,6 +12,7 @@
     "zx": "^8.2.2"
   },
   "scripts": {
+    "test": "node --test test/*.test.mjs",
     "analyze-track": "node analyze-track.js",
     "normalize-track": "node normalize-track.js",
     "gen-event-json": "npx zx gen-event-json.zx.mjs",

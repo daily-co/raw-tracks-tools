@@ -5,6 +5,20 @@ import * as childProcess from 'node:child_process';
 import { runFfmpegCommandAsync } from './ffexec.js';
 
 const g_tempFilePrefix = 'rawtracks_';
+
+// Raw-tracks audio is Opus-in-WebM written with real recording-relative
+// timestamps, so unrecovered packet loss leaves genuine holes in the PTS.
+// We rely on aresample=async=1 to fill those holes with silence, but its
+// default deadband (min_hard_comp=0.1) ignores any divergence below 100ms.
+// Scattered sub-100ms holes therefore get absorbed instead of filled, and the
+// track slides early until the running deficit finally crosses 100ms. Because
+// the correction lands later than the hole, exact sample positions are never
+// restored, and two participants with different loss patterns drift apart.
+//
+// 10ms is comfortably below the 20ms Opus packet size, so every real hole is
+// filled at its true position, while still keeping a deadband against
+// sub-frame timestamp noise from Matroska's millisecond timestamps.
+const g_audioGapFillFilter = 'aresample=async=1:min_hard_comp=0.01';
 let g_audioEncoderArgs;
 let g_videoEncoderArgs;
 
@@ -112,15 +126,16 @@ async function normalizeAudioTrackToAAC(
   outputPath,
   opts = {}
 ) {
-  // the audio version of this operation just pads the start with silence.
-  // we don't need to do gap rendering like with video.
+  // the audio version of this operation pads the start with silence and lets
+  // aresample fill mid-file holes in place (see g_audioGapFillFilter), so we
+  // don't need explicit gap segmenting like with video.
 
   const args = [
     '-i',
     inputPath,
     '-af',
     // ffmpeg quirk: aresample needs to come before adelay in the filter chain
-    `aresample=async=1,adelay=${Math.floor(
+    `${g_audioGapFillFilter},adelay=${Math.floor(
       analysis.startTime * 1000
     )}:all=true`,
     ...getAudioEncoderArgs(),
@@ -148,7 +163,7 @@ async function normalizeAudioTrackToWav(
     '-i',
     inputPath,
     '-af',
-    `aresample=async=1,adelay=${Math.floor(
+    `${g_audioGapFillFilter},adelay=${Math.floor(
       analysis.startTime * 1000
     )}:all=true`,
     '-ar',
