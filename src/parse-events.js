@@ -8,7 +8,7 @@ const CONTENT_TYPE_EXTS = {
   'audio/wav': '.wav',
   'audio/x-wav': '.wav',
   'audio/aac': '.aac',
-  'audio/mp4': '.aac',
+  'audio/mp4': '.m4a',
 };
 
 function contentTypeToExt(contentType) {
@@ -181,4 +181,20 @@ export function parseEventJson(eventJson) {
     chatMessages: chatMessages ?? [],
     sessionDurationSecs,
   };
+}
+
+/**
+ * Event JSONs may lack track-removed / recording-media-finished events, leaving
+ * sessionDurationSecs at the last event ts. Extend it to the media end of any
+ * track without a removal event. endsByTrackNum: trackSessionNum -> end secs
+ * relative to recording start.
+ */
+export function extendTimelineWithMediaEnds(timeline, endsByTrackNum) {
+  for (const [trackSessionNum, track] of timeline.tracks) {
+    if (track.removedAtSecs != null) continue;
+    const end = endsByTrackNum.get(trackSessionNum);
+    if (end != null) {
+      timeline.sessionDurationSecs = Math.max(timeline.sessionDurationSecs, end);
+    }
+  }
 }

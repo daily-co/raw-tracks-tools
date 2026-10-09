@@ -3,6 +3,9 @@
  * for video tracks (to catch WebRTC resolution ramp-up without a full scan).
  */
 
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
 import { runFfprobeCommandAsync } from './ffprobe.js';
 
 export async function probeTrack(ctxName, inputPath) {
@@ -60,6 +63,14 @@ export async function probeTrack(ctxName, inputPath) {
       );
     }
 
+    // H.264 (level 5.2 / videotoolbox) can't encode frames larger than 4096x2304,
+    // e.g. Retina screen shares, so fit within that box keeping aspect ratio.
+    const scale = Math.min(1, 4096 / maxW, 2304 / maxH);
+    if (scale < 1) {
+      maxW = Math.floor((maxW * scale) / 2) * 2;
+      maxH = Math.floor((maxH * scale) / 2) * 2;
+    }
+
     result.videoSize = { w: maxW, h: maxH };
 
     // Parse frame rate from r_frame_rate (e.g. "30/1").
@@ -89,4 +100,30 @@ export async function probeTrack(ctxName, inputPath) {
   }
 
   return result;
+}
+
+/**
+ * Returns the end time (absolute media PTS, seconds) of stream 0 by scanning
+ * packets, for files without a duration header (e.g. live-written webm).
+ * Uses execFile rather than runFfprobeCommandAsync: that helper only parses
+ * [FRAME]/[STREAM] sections and can't handle large chunked output.
+ */
+export async function probeMediaEndSecs(inputPath) {
+  const { stdout } = await promisify(execFile)(
+    'ffprobe',
+    [
+      '-v', 'error',
+      '-select_streams', '0',
+      '-show_entries', 'packet=pts_time,duration_time',
+      '-of', 'csv=p=0',
+      inputPath,
+    ],
+    { maxBuffer: 256 * 1024 * 1024 }
+  );
+  let end = 0;
+  for (const line of stdout.split('\n')) {
+    const [pts, dur] = line.split(',').map(parseFloat);
+    if (isFinite(pts)) end = Math.max(end, pts + (isFinite(dur) ? dur : 0));
+  }
+  return end;
 }
