@@ -3,8 +3,8 @@ import 'zx/globals';
 import { fileURLToPath } from 'node:url';
 import * as util from 'node:util';
 
-import { parseEventJson } from './src/parse-events.js';
-import { probeTrack } from './src/probe-track.js';
+import { parseEventJson, extendTimelineWithMediaEnds } from './src/parse-events.js';
+import { probeTrack, probeMediaEndSecs } from './src/probe-track.js';
 import { normalizeVideoTrackToM4V, normalizeAudioTrack } from './src/render-track.js';
 import { writeVcsBatchFromEvents } from './src/vcs-batch-from-events.js';
 import { createStorageWatcher } from './src/storage-watcher.js';
@@ -165,6 +165,23 @@ echo`Tracks: ${timeline.tracks.size}, Participants: ${timeline.participants.size
 
 for (const [pid, p] of timeline.participants) {
   echo`  ${p.displayName}: ${p.videoTrackNums.length} video, ${p.audioTrackNums.length} audio`;
+}
+
+// Event JSONs may lack end events; extend the session to the media end of
+// tracks that were never removed. webm PTS is absolute, so convert via the
+// stream start: recordingRelative = startOffsetSecs + (endPts - startTime).
+const mediaEnds = new Map();
+for (const [trackSessionNum, track] of timeline.tracks) {
+  if (!track.filename || track.removedAtSecs != null) continue;
+  const filePath = path.resolve(eventJsonDir, track.filename);
+  if (!fs.existsSync(filePath)) continue;
+  const { startTime } = await probeTrack(`mediaend_${trackSessionNum}`, filePath);
+  const endPts = await probeMediaEndSecs(filePath);
+  mediaEnds.set(trackSessionNum, track.startOffsetSecs + (endPts - startTime));
+}
+if (mediaEnds.size > 0) {
+  extendTimelineWithMediaEnds(timeline, mediaEnds);
+  echo`Session duration (from media): ${timeline.sessionDurationSecs.toFixed(1)}s`;
 }
 
 // --- Step 2: Compute render window ---
@@ -873,7 +890,7 @@ async function mixAudioFromFiles(srcFiles, mixOutputPath, seekStart = 0, duratio
 
   for (const src of srcFiles) {
     const ext = path.extname(src);
-    if (ext === '.aac' || ext === '.wav') {
+    if (ext === '.aac' || ext === '.wav' || ext === '.m4a') {
       audioFiles.push(src);
     } else if (ext === '.mp4') {
       const basename = path.basename(src, ext);
